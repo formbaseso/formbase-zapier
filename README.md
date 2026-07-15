@@ -18,7 +18,9 @@ and `package-lock.json`, as required by the Zapier CLI.
     (default `https://api.formbase.so`).
 - **Trigger `submission`** (REST Hooks) — subscribes via `webhooks.create`
   (returns `{ subscriptionId, … }`), unsubscribes via `webhooks.delete`
-  (`subscriptionId`), samples via `submissions.sample`. Payload carries
+  (`subscriptionId`), and supports `submission_created` plus
+  `submission_abandoned` (requires partial-submission tracking). Samples come
+  from `submissions.sample`. Payload carries
   `submission.language` (BCP-47). Repeating-group member fields:
   `fields[].value.raw` is an array of per-row values, `.display` joins them with
   ", "; all other fields scalar.

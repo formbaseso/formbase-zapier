@@ -83,7 +83,21 @@ describe('submission trigger', () => {
     expect(typeof formsField.dynamic === 'string' || typeof trigger.operation.inputFields[0].choices === 'object' || true).toBeTruthy()
   })
 
-  test('performSubscribe POSTs webhooks.create and returns id from subscriptionId', async () => {
+  test('offers completed and abandoned submission events', () => {
+    const eventField = trigger.operation.inputFields.find((field) => field.key === 'eventType')
+
+    expect(eventField).toMatchObject({
+      required: true,
+      default: 'submission_created',
+      choices: {
+        submission_created: 'Submission created',
+        submission_abandoned: 'Submission abandoned',
+      },
+    })
+    expect(eventField.helpText).toMatch(/partial-submission tracking/i)
+  })
+
+  test('performSubscribe defaults to submission_created and returns subscription id', async () => {
     nock(FAKE_BASE)
       .post(
         '/api/v1',
@@ -113,6 +127,39 @@ describe('submission trigger', () => {
     }
     const result = await trigger.operation.performSubscribe(z, bundle)
     expect(result.id).toBe('int_1')
+  })
+
+  test('performSubscribe registers submission_abandoned when selected', async () => {
+    nock(FAKE_BASE)
+      .post(
+        '/api/v1',
+        (b) =>
+          b.method === 'webhooks.create' &&
+          b.params.formId === 'form_1' &&
+          b.params.provider === 'zapier' &&
+          b.params.eventType === 'submission_abandoned' &&
+          b.params.targetUrl === 'https://hooks.zapier.com/abandoned'
+      )
+      .reply(200, {
+        ok: true,
+        data: {
+          subscriptionId: 'int_abandoned',
+          formId: 'form_1',
+          provider: 'zapier',
+          targetUrl: 'https://hooks.zapier.com/abandoned',
+          eventType: 'submission_abandoned',
+        },
+      })
+
+    const z = makeZ()
+    const bundle = {
+      authData: { access_token: 'fbo_x' },
+      targetUrl: 'https://hooks.zapier.com/abandoned',
+      inputData: { formId: 'form_1', eventType: 'submission_abandoned' },
+    }
+    const result = await trigger.operation.performSubscribe(z, bundle)
+
+    expect(result.id).toBe('int_abandoned')
   })
 
   test('performUnsubscribe POSTs webhooks.delete with subscriptionId param', async () => {

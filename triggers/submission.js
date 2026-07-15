@@ -5,6 +5,16 @@ const hydrators = require('../hydrators')
 // listForms lives in utils/ rather than on this module so the Zapier schema
 // validator does not flag it as an unknown trigger property.
 
+const WEBHOOK_EVENTS = {
+  created: 'submission_created',
+  abandoned: 'submission_abandoned',
+}
+
+const WEBHOOK_EVENT_CHOICES = {
+  [WEBHOOK_EVENTS.created]: 'Submission created',
+  [WEBHOOK_EVENTS.abandoned]: 'Submission abandoned',
+}
+
 const SAMPLE = {
   eventId: 'evt_01HEXAMPLEEXAMPLE',
   eventType: 'SUBMIT_RESPONSE',
@@ -73,7 +83,8 @@ async function performSubscribe(z, bundle) {
       formId: bundle.inputData.formId,
       targetUrl: bundle.targetUrl,
       provider: 'zapier',
-      eventType: 'submission_created',
+      // Keep existing Zaps created before the event picker on completed submissions.
+      eventType: bundle.inputData.eventType || WEBHOOK_EVENTS.created,
     },
   })
   // webhooks.create returns { subscriptionId, formId, provider, targetUrl, eventType }.
@@ -120,7 +131,7 @@ const trigger = {
   noun: 'Submission',
   display: {
     label: 'Submission',
-    description: 'Triggers when a form receives a new or updated submission.',
+    description: 'Triggers when a form receives a completed or abandoned submission.',
   },
   operation: {
     type: 'hook',
@@ -132,6 +143,15 @@ const trigger = {
         required: true,
         dynamic: 'form_list.id.name',
         helpText: 'Choose which formbase form should fire this Zap.',
+      },
+      {
+        key: 'eventType',
+        label: 'Event',
+        type: 'string',
+        required: true,
+        choices: WEBHOOK_EVENT_CHOICES,
+        default: WEBHOOK_EVENTS.created,
+        helpText: 'Abandoned submissions require partial-submission tracking on the formbase workspace.',
       },
     ],
     performSubscribe,
