@@ -1,5 +1,6 @@
 'use strict'
 
+const { createHmac, randomBytes, timingSafeEqual } = require('crypto')
 const { formbaseRpc } = require('../utils/request')
 const hydrators = require('../hydrators')
 // listForms lives in utils/ rather than on this module so the Zapier schema
@@ -14,6 +15,21 @@ const WEBHOOK_EVENT_CHOICES = {
   [WEBHOOK_EVENTS.created]: 'Submission created',
   [WEBHOOK_EVENTS.abandoned]: 'Submission abandoned',
 }
+
+const PAYLOAD_EVENT_TYPES = {
+  [WEBHOOK_EVENTS.created]: 'SUBMIT_RESPONSE',
+  [WEBHOOK_EVENTS.abandoned]: 'ABANDON_RESPONSE',
+}
+
+const WEBHOOK_IDLE_WINDOW_CHOICES = {
+  '12h': '12 hours',
+  '1d': '1 day',
+  '3d': '3 days',
+  '1w': '1 week',
+}
+
+const SIGNATURE_HEADER_PATTERN = /^t=(\d+),sha256=([a-f0-9]{64})$/
+const SIGNATURE_MAX_AGE_SECONDS = 5 * 60
 
 const SAMPLE = {
   eventId: 'evt_01HEXAMPLEEXAMPLE',
@@ -75,6 +91,20 @@ const OUTPUT_FIELDS = [
 ]
 
 async function performSubscribe(z, bundle) {
+  const eventType = bundle.inputData.eventType
+  if (!Object.prototype.hasOwnProperty.call(WEBHOOK_EVENT_CHOICES, eventType)) {
+    throw new Error('Select a valid formbase webhook event.')
+  }
+
+  const idleWindow = bundle.inputData.idleWindow
+  if (
+    eventType === WEBHOOK_EVENTS.abandoned &&
+    !Object.prototype.hasOwnProperty.call(WEBHOOK_IDLE_WINDOW_CHOICES, idleWindow)
+  ) {
+    throw new Error('Select when formbase should consider the submission abandoned.')
+  }
+
+  const signingSecret = createWebhookSigningSecret()
   const data = await formbaseRpc({
     z,
     bundle,
@@ -83,13 +113,14 @@ async function performSubscribe(z, bundle) {
       formId: bundle.inputData.formId,
       targetUrl: bundle.targetUrl,
       provider: 'zapier',
-      // Keep existing Zaps created before the event picker on completed submissions.
-      eventType: bundle.inputData.eventType || WEBHOOK_EVENTS.created,
+      eventType,
+      ...(eventType === WEBHOOK_EVENTS.abandoned ? { idleWindow } : {}),
+      signingSecret,
     },
   })
-  // webhooks.create returns { subscriptionId, formId, provider, targetUrl, eventType }.
-  // Zapier stores the returned object as bundle.subscribeData for performUnsubscribe.
-  return { id: data.subscriptionId }
+  // webhooks.create never returns the secret. Zapier stores this object as
+  // bundle.subscribeData, which is available when webhook requests arrive.
+  return { id: data.subscriptionId, signingSecret }
 }
 
 async function performUnsubscribe(z, bundle) {
@@ -99,6 +130,9 @@ async function performUnsubscribe(z, bundle) {
 }
 
 async function perform(z, bundle) {
+  if (!verifyWebhookSignature(bundle)) {
+    throw new Error('Invalid or expired formbase webhook signature.')
+  }
   return [addPdfFileHydrator(z, bundle.cleanedRequest)]
 }
 
@@ -109,7 +143,13 @@ async function performList(z, bundle) {
     method: 'submissions.sample',
     params: { formId: bundle.inputData.formId },
   })
-  return [addPdfFileHydrator(z, data)]
+  return [addPdfFileHydrator(z, withSelectedPayloadEventType(data, bundle.inputData.eventType))]
+}
+
+function withSelectedPayloadEventType(payload, webhookEventType) {
+  const eventType = PAYLOAD_EVENT_TYPES[webhookEventType]
+  if (!eventType || payload?.eventType === eventType) return payload
+  return { ...payload, eventType }
 }
 
 function addPdfFileHydrator(z, payload) {
@@ -126,6 +166,59 @@ function addPdfFileHydrator(z, payload) {
   }
 }
 
+function createWebhookSigningSecret() {
+  return `whsec_${randomBytes(32).toString('hex')}`
+}
+
+function getIdleWindowInputFields(_z, bundle) {
+  if (bundle.inputData.eventType !== WEBHOOK_EVENTS.abandoned) return []
+
+  return [
+    {
+      key: 'idleWindow',
+      label: 'Consider submission abandoned after',
+      type: 'string',
+      required: true,
+      choices: WEBHOOK_IDLE_WINDOW_CHOICES,
+      default: '12h',
+      helpText:
+        'Triggers after the response has no saved changes for this long. The hourly sweep can add up to one extra hour.',
+    },
+  ]
+}
+
+function verifyWebhookSignature(bundle) {
+  const secret = bundle.subscribeData?.signingSecret
+  if (typeof secret !== 'string' || secret.length === 0) return false
+
+  const headers = bundle.rawRequest?.headers
+  if (!headers || typeof headers !== 'object') return false
+
+  const signatureHeader = Object.entries(headers).find(([name]) => {
+    const normalizedName = name.toLowerCase()
+    return normalizedName === 'http-x-formbase-signature' || normalizedName === 'x-formbase-signature'
+  })?.[1]
+  if (typeof signatureHeader !== 'string') return false
+
+  const match = SIGNATURE_HEADER_PATTERN.exec(signatureHeader)
+  if (!match) return false
+
+  const [, timestamp, signatureHex] = match
+  const timestampSeconds = Number(timestamp)
+  if (!Number.isSafeInteger(timestampSeconds)) return false
+
+  const currentTimestampSeconds = Math.floor(Date.now() / 1000)
+  if (Math.abs(currentTimestampSeconds - timestampSeconds) > SIGNATURE_MAX_AGE_SECONDS) return false
+
+  const rawBody = bundle.rawRequest?.content
+  if (typeof rawBody !== 'string' && !Buffer.isBuffer(rawBody)) return false
+
+  const expectedSignature = createHmac('sha256', secret).update(timestamp).update('.').update(rawBody).digest()
+  const receivedSignature = Buffer.from(signatureHex, 'hex')
+
+  return expectedSignature.length === receivedSignature.length && timingSafeEqual(expectedSignature, receivedSignature)
+}
+
 const trigger = {
   key: 'submission',
   noun: 'Submission',
@@ -135,6 +228,7 @@ const trigger = {
   },
   operation: {
     type: 'hook',
+    cleanInputData: false,
     inputFields: [
       {
         key: 'formId',
@@ -151,8 +245,10 @@ const trigger = {
         required: true,
         choices: WEBHOOK_EVENT_CHOICES,
         default: WEBHOOK_EVENTS.created,
+        altersDynamicFields: true,
         helpText: 'Abandoned submissions require partial-submission tracking on the formbase workspace.',
       },
+      getIdleWindowInputFields,
     ],
     performSubscribe,
     performUnsubscribe,

@@ -1,6 +1,7 @@
 // BASE_URL is read at module load in utils/request, so set it before requiring.
 process.env.BASE_URL = 'https://fake.formbase.test'
 
+const { createHmac } = require('crypto')
 const nock = require('nock')
 const hydrators = require('../hydrators')
 const trigger = require('../triggers/submission')
@@ -42,6 +43,23 @@ function makeZ() {
 }
 
 const FAKE_BASE = process.env.BASE_URL
+const SIGNING_SECRET = `whsec_${'a'.repeat(64)}`
+
+function makeSignedWebhookBundle(cleanedRequest, options = {}) {
+  const signingSecret = options.signingSecret || SIGNING_SECRET
+  const timestamp = String(options.timestamp || Math.floor(Date.now() / 1000))
+  const content = options.content || JSON.stringify(cleanedRequest)
+  const signature = createHmac('sha256', signingSecret).update(timestamp).update('.').update(content).digest('hex')
+
+  return {
+    cleanedRequest,
+    subscribeData: { signingSecret },
+    rawRequest: {
+      headers: { 'Http-X-Formbase-Signature': `t=${timestamp},sha256=${signature}` },
+      content,
+    },
+  }
+}
 
 describe('submission trigger', () => {
   afterEach(() => nock.cleanAll())
@@ -52,6 +70,7 @@ describe('submission trigger', () => {
     expect(trigger.display.label).toBe('Submission')
     expect(trigger.display.description).toMatch(/submission/i)
     expect(trigger.operation.type).toBe('hook')
+    expect(trigger.operation.cleanInputData).toBe(false)
     expect(typeof trigger.operation.performSubscribe).toBe('function')
     expect(typeof trigger.operation.performUnsubscribe).toBe('function')
     expect(typeof trigger.operation.perform).toBe('function')
@@ -93,20 +112,48 @@ describe('submission trigger', () => {
         submission_created: 'Submission created',
         submission_abandoned: 'Submission abandoned',
       },
+      altersDynamicFields: true,
     })
     expect(eventField.helpText).toMatch(/partial-submission tracking/i)
   })
 
-  test('performSubscribe defaults to submission_created and returns subscription id', async () => {
+  test('only asks for an idle window when abandoned submissions are selected', () => {
+    const dynamicField = trigger.operation.inputFields.find((field) => typeof field === 'function')
+
+    expect(dynamicField(makeZ(), { inputData: { eventType: 'submission_created' } })).toEqual([])
+
+    const [idleWindowField] = dynamicField(makeZ(), { inputData: { eventType: 'submission_abandoned' } })
+    expect(idleWindowField).toMatchObject({
+      key: 'idleWindow',
+      required: true,
+      default: '12h',
+      choices: {
+        '12h': '12 hours',
+        '1d': '1 day',
+        '3d': '3 days',
+        '1w': '1 week',
+      },
+    })
+    expect(idleWindowField.helpText).toMatch(/hourly sweep/i)
+  })
+
+  test('performSubscribe registers submission_created with a signing secret', async () => {
+    let requestBody
     nock(FAKE_BASE)
       .post(
         '/api/v1',
-        (b) =>
-          b.method === 'webhooks.create' &&
-          b.params.formId === 'form_1' &&
-          b.params.provider === 'zapier' &&
-          b.params.eventType === 'submission_created' &&
-          b.params.targetUrl === 'https://hooks.zapier.com/abc'
+        (body) => {
+          requestBody = body
+          return (
+            body.method === 'webhooks.create' &&
+            body.params.formId === 'form_1' &&
+            body.params.provider === 'zapier' &&
+            body.params.eventType === 'submission_created' &&
+            body.params.targetUrl === 'https://hooks.zapier.com/abc' &&
+            /^whsec_[a-f0-9]{64}$/.test(body.params.signingSecret) &&
+            !Object.prototype.hasOwnProperty.call(body.params, 'idleWindow')
+          )
+        }
       )
       .reply(200, {
         ok: true,
@@ -123,22 +170,29 @@ describe('submission trigger', () => {
     const bundle = {
       authData: { access_token: 'fbo_x' },
       targetUrl: 'https://hooks.zapier.com/abc',
-      inputData: { formId: 'form_1' },
+      inputData: { formId: 'form_1', eventType: 'submission_created' },
     }
     const result = await trigger.operation.performSubscribe(z, bundle)
-    expect(result.id).toBe('int_1')
+    expect(result).toEqual({ id: 'int_1', signingSecret: requestBody.params.signingSecret })
   })
 
-  test('performSubscribe registers submission_abandoned when selected', async () => {
+  test('performSubscribe registers submission_abandoned with its idle window and signing secret', async () => {
+    let requestBody
     nock(FAKE_BASE)
       .post(
         '/api/v1',
-        (b) =>
-          b.method === 'webhooks.create' &&
-          b.params.formId === 'form_1' &&
-          b.params.provider === 'zapier' &&
-          b.params.eventType === 'submission_abandoned' &&
-          b.params.targetUrl === 'https://hooks.zapier.com/abandoned'
+        (body) => {
+          requestBody = body
+          return (
+            body.method === 'webhooks.create' &&
+            body.params.formId === 'form_1' &&
+            body.params.provider === 'zapier' &&
+            body.params.eventType === 'submission_abandoned' &&
+            body.params.idleWindow === '3d' &&
+            body.params.targetUrl === 'https://hooks.zapier.com/abandoned' &&
+            /^whsec_[a-f0-9]{64}$/.test(body.params.signingSecret)
+          )
+        }
       )
       .reply(200, {
         ok: true,
@@ -155,11 +209,34 @@ describe('submission trigger', () => {
     const bundle = {
       authData: { access_token: 'fbo_x' },
       targetUrl: 'https://hooks.zapier.com/abandoned',
-      inputData: { formId: 'form_1', eventType: 'submission_abandoned' },
+      inputData: { formId: 'form_1', eventType: 'submission_abandoned', idleWindow: '3d' },
     }
     const result = await trigger.operation.performSubscribe(z, bundle)
 
-    expect(result.id).toBe('int_abandoned')
+    expect(result).toEqual({ id: 'int_abandoned', signingSecret: requestBody.params.signingSecret })
+  })
+
+  test('performSubscribe rejects missing or invalid subscription settings before calling formbase', async () => {
+    const z = makeZ()
+    const baseBundle = {
+      authData: { access_token: 'fbo_x' },
+      targetUrl: 'https://hooks.zapier.com/invalid',
+      inputData: { formId: 'form_1' },
+    }
+
+    await expect(trigger.operation.performSubscribe(z, baseBundle)).rejects.toThrow(/valid formbase webhook event/i)
+    await expect(
+      trigger.operation.performSubscribe(z, {
+        ...baseBundle,
+        inputData: { ...baseBundle.inputData, eventType: 'submission_abandoned' },
+      })
+    ).rejects.toThrow(/consider the submission abandoned/i)
+    await expect(
+      trigger.operation.performSubscribe(z, {
+        ...baseBundle,
+        inputData: { ...baseBundle.inputData, eventType: 'submission_abandoned', idleWindow: '2d' },
+      })
+    ).rejects.toThrow(/consider the submission abandoned/i)
   })
 
   test('performUnsubscribe POSTs webhooks.delete with subscriptionId param', async () => {
@@ -176,12 +253,36 @@ describe('submission trigger', () => {
     expect(result).toEqual({ ok: true })
   })
 
-  test('perform returns [bundle.cleanedRequest]', async () => {
+  test('perform accepts a valid signed webhook and returns [bundle.cleanedRequest]', async () => {
     const z = makeZ()
     const cleaned = { eventId: 'e1', eventType: 'SUBMIT_RESPONSE' }
-    const bundle = { cleanedRequest: cleaned }
+    const bundle = makeSignedWebhookBundle(cleaned)
     const result = await trigger.operation.perform(z, bundle)
     expect(result).toEqual([cleaned])
+  })
+
+  test('perform preserves ABANDON_RESPONSE from a signed abandoned-submission webhook', async () => {
+    const z = makeZ()
+    const cleaned = { eventId: 'e_abandoned', eventType: 'ABANDON_RESPONSE' }
+    const result = await trigger.operation.perform(z, makeSignedWebhookBundle(cleaned))
+
+    expect(result).toEqual([cleaned])
+  })
+
+  test('perform rejects unsigned, invalid, and expired webhook requests', async () => {
+    const z = makeZ()
+    const cleaned = { eventId: 'e1', eventType: 'SUBMIT_RESPONSE' }
+
+    await expect(trigger.operation.perform(z, { cleanedRequest: cleaned })).rejects.toThrow(/webhook signature/i)
+
+    const invalid = makeSignedWebhookBundle(cleaned)
+    invalid.rawRequest.content = `${invalid.rawRequest.content} `
+    await expect(trigger.operation.perform(z, invalid)).rejects.toThrow(/webhook signature/i)
+
+    const expired = makeSignedWebhookBundle(cleaned, {
+      timestamp: Math.floor(Date.now() / 1000) - 301,
+    })
+    await expect(trigger.operation.perform(z, expired)).rejects.toThrow(/webhook signature/i)
   })
 
   test('perform adds lazy PDF file hydrator when payload has PDF link', async () => {
@@ -195,11 +296,14 @@ describe('submission trigger', () => {
         submissionPdfLink: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
       },
     }
-    const result = await trigger.operation.perform(z, { cleanedRequest: cleaned })
+    const result = await trigger.operation.perform(z, makeSignedWebhookBundle(cleaned))
     expect(result[0].submission.pdfFile).toBe('hydrate-file:form_1:sub_1')
   })
 
-  test('performList calls submissions.sample and returns [data]', async () => {
+  test.each([
+    ['submission_created', 'SUBMIT_RESPONSE'],
+    ['submission_abandoned', 'ABANDON_RESPONSE'],
+  ])('performList returns a sample matching selected %s event', async (selectedEventType, expectedPayloadEventType) => {
     const sample = {
       eventId: 'e_sample',
       eventType: 'SUBMIT_RESPONSE',
@@ -215,10 +319,10 @@ describe('submission trigger', () => {
     const z = makeZ()
     const bundle = {
       authData: { access_token: 'fbo_x' },
-      inputData: { formId: 'form_1' },
+      inputData: { formId: 'form_1', eventType: selectedEventType },
     }
     const result = await trigger.operation.performList(z, bundle)
-    expect(result).toEqual([sample])
+    expect(result).toEqual([{ ...sample, eventType: expectedPayloadEventType }])
   })
 
   test('downloadSubmissionPdf hydrator calls submissions.pdf and returns URL', async () => {

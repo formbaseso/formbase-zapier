@@ -19,11 +19,23 @@ and `package-lock.json`, as required by the Zapier CLI.
 - **Trigger `submission`** (REST Hooks) — subscribes via `webhooks.create`
   (returns `{ subscriptionId, … }`), unsubscribes via `webhooks.delete`
   (`subscriptionId`), and supports `submission_created` plus
-  `submission_abandoned` (requires partial-submission tracking). Samples come
-  from `submissions.sample`. Payload carries
+  `submission_abandoned` (requires partial-submission tracking). Abandoned Zaps
+  choose a required idle window: 12 hours, 1 day, 3 days, or 1 week. formbase
+  checks idle drafts hourly, so delivery can occur up to one hour after the
+  selected threshold. Completed-submission subscriptions receive both new
+  (`SUBMIT_RESPONSE`) and later edited (`UPDATE_RESPONSE`) payloads; no separate
+  updated-submission trigger is needed. Abandoned-submission subscriptions
+  receive `ABANDON_RESPONSE`. Samples come from `submissions.sample`; Zapier
+  labels an abandoned trigger's sample `ABANDON_RESPONSE` so filters and mapped
+  fields reflect its live payload. Payload carries
   `submission.language` (BCP-47). Repeating-group member fields:
   `fields[].value.raw` is an array of per-row values, `.display` joins them with
   ", "; all other fields scalar.
+- **Webhook verification** — each REST Hook subscription generates a unique
+  signing secret, passes it to `webhooks.create`, stores it in Zapier's
+  `subscribeData`, and verifies `X-formbase-Signature` against the exact raw
+  request body with HMAC-SHA256. Requests with a missing/invalid signature or a
+  timestamp more than five minutes old are rejected.
 - **Form picker** (`triggers/form_list.js`, hidden trigger keyed `form_list`) —
   feeds the `submission` `formId` dropdown via `form_list.id.name`.
 - **JSON-RPC client** (`utils/request.js`, `utils/list_forms.js`) — POSTs to
@@ -102,6 +114,10 @@ npx zapier-platform validate
 npx zapier-platform push
 npx zapier-platform promote 1.0.0
 ```
+
+After pushing this change, turn every existing formbase Zap off and back on (or
+recreate its trigger). This registers a new subscription containing the required
+idle window and signing secret. Old subscriptions are intentionally unsupported.
 
 > CLI bin is `zapier-platform` (was `zapier`) since `zapier-platform-cli` v19.
 > `validate` needs the app registered first (expects `.zapierapprc`).
