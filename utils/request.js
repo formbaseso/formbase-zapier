@@ -53,7 +53,11 @@ async function formbaseRpc({ z, bundle, method, params }) {
   if (code === 'RATE_LIMITED') {
     throw new z.errors.ThrottledError(message)
   }
-  throw new Error(`${code}: ${message}`)
+  // The error code stays readable on the thrown error so a caller can branch on
+  // it (e.g. output fields degrade on VALIDATION_ERROR) instead of matching text.
+  const error = new Error(`${code}: ${message}`)
+  error.code = code
+  throw error
 }
 
 module.exports = { formbaseRpc, BASE_URL }

@@ -100,7 +100,8 @@ async function outputFields(z, bundle) {
   const formId = bundle.inputData.formId
   if (!formId) return ENVELOPE_OUTPUT_FIELDS
 
-  const data = await formbaseRpc({ z, bundle, method: 'fields.list', params: { formId } })
+  const data = await listPublishedFields(z, bundle, formId)
+  if (!data) return ENVELOPE_OUTPUT_FIELDS
   const fields = []
   for (const item of data?.items ?? []) {
     if (Array.isArray(item.members)) {
@@ -119,6 +120,22 @@ async function outputFields(z, bundle) {
     fields.push({ key: `data__display__${item.key}`, label: `${item.title} (display)`, type: 'string' })
   }
   return [...ENVELOPE_OUTPUT_FIELDS, ...fields]
+}
+
+/**
+ * The form's published field list, or null when the form has none to list yet —
+ * `fields.list` rejects an unpublished form with VALIDATION_ERROR, and a Zap may
+ * legitimately be wired up before the form is published. Output fields are
+ * advisory, so that case falls back to the envelope; every other failure
+ * (auth, rate limit, transport) still surfaces.
+ */
+async function listPublishedFields(z, bundle, formId) {
+  try {
+    return await formbaseRpc({ z, bundle, method: 'fields.list', params: { formId } })
+  } catch (error) {
+    if (error?.code === 'VALIDATION_ERROR' || error?.code === 'NOT_FOUND') return null
+    throw error
+  }
 }
 
 async function performSubscribe(z, bundle) {
@@ -184,10 +201,19 @@ function withSelectedPayloadEventType(payload, webhookEventType) {
 }
 
 function addPdfFileHydrator(z, payload) {
+  // `pdfUrl: null` is the event saying no PDF is kept for this submission, so
+  // the PDF File output is legitimately absent.
+  const pdfUrl = payload?.data?.submission?.pdfUrl
+  if (!pdfUrl) return payload
+
+  // A PDF with nothing to hydrate it from is a payload we no longer understand.
+  // Fail loudly: silently dropping the output is how the PDF File mapping
+  // disappeared from live Zaps the last time the envelope changed.
   const formId = payload?.data?.form?.id
   const submissionId = payload?.data?.submission?.id
-  const pdfUrl = payload?.data?.submission?.pdfUrl
-  if (!formId || !submissionId || !pdfUrl) return payload
+  if (!formId || !submissionId) {
+    throw new Error('formbase event carries a submission PDF but no data.form.id / data.submission.id to hydrate it from.')
+  }
   return {
     ...payload,
     data: {

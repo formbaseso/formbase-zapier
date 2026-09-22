@@ -139,6 +139,32 @@ describe('submission trigger', () => {
     expect(fields.some((f) => f.key.startsWith('data__answers__'))).toBe(false)
   })
 
+  test('outputFields falls back to the envelope when the chosen form is not published', async () => {
+    nock(FAKE_BASE)
+      .post('/api/v1', (b) => b.method === 'fields.list')
+      .reply(200, {
+        ok: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Form "Draft" is not published. Publish it before reading its fields.' },
+      })
+
+    const fields = await trigger.operation.outputFields[0](makeZ(), {
+      authData: { access_token: 'fbo_x' },
+      inputData: { formId: 'form_draft' },
+    })
+    expect(fields.map((f) => f.key)).toContain('data__form__id')
+    expect(fields.some((f) => f.key.startsWith('data__answers__'))).toBe(false)
+  })
+
+  test('outputFields surfaces a non-validation formbase failure instead of hiding the answer fields', async () => {
+    nock(FAKE_BASE)
+      .post('/api/v1', (b) => b.method === 'fields.list')
+      .reply(200, { ok: false, error: { code: 'INTERNAL_ERROR', message: 'boom' } })
+
+    await expect(
+      trigger.operation.outputFields[0](makeZ(), { authData: { access_token: 'fbo_x' }, inputData: { formId: 'form_1' } })
+    ).rejects.toThrow(/INTERNAL_ERROR/)
+  })
+
   test('inputFields[0].dynamic loads forms via forms.list', async () => {
     const formsField = trigger.operation.inputFields.find((f) => f.key === 'formId')
     expect(formsField).toBeDefined()
@@ -345,6 +371,27 @@ describe('submission trigger', () => {
     }
     const result = await trigger.operation.perform(z, makeSignedWebhookBundle(cleaned))
     expect(result[0].data.submission.pdfFile).toBe('hydrate-file:form_1:sub_1')
+  })
+
+  test('perform leaves the PDF output absent when the event keeps no PDF', async () => {
+    const z = makeZ()
+    const cleaned = {
+      id: 'e1',
+      type: 'submission.completed',
+      data: { form: { id: 'form_1' }, submission: { id: 'sub_1', pdfUrl: null } },
+    }
+    const [result] = await trigger.operation.perform(z, makeSignedWebhookBundle(cleaned))
+    expect(result.data.submission).not.toHaveProperty('pdfFile')
+  })
+
+  test('perform fails loudly when a PDF event carries no ids to hydrate from', async () => {
+    const z = makeZ()
+    const cleaned = {
+      id: 'e1',
+      type: 'submission.completed',
+      data: { form: {}, submission: { pdfUrl: 'https://api.formbase.so/api/storage/x' } },
+    }
+    await expect(trigger.operation.perform(z, makeSignedWebhookBundle(cleaned))).rejects.toThrow(/hydrate it from/i)
   })
 
   test.each([
