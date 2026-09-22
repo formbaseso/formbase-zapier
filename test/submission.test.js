@@ -76,22 +76,67 @@ describe('submission trigger', () => {
     expect(typeof trigger.operation.perform).toBe('function')
     expect(typeof trigger.operation.performList).toBe('function')
     expect(trigger.operation.sample).toBeDefined()
-    expect(trigger.operation.sample.eventType).toBe('SUBMIT_RESPONSE')
+    expect(trigger.operation.sample.type).toBe('submission.completed')
     expect(Array.isArray(trigger.operation.outputFields)).toBe(true)
+    expect(typeof trigger.operation.outputFields[0]).toBe('function')
     expect(Array.isArray(trigger.operation.inputFields)).toBe(true)
   })
 
-  test('schema advertises repeating-group array values + submission language + PDF outputs', () => {
-    const keys = trigger.operation.outputFields.map((f) => f.key)
-    expect(keys).toContain('submission__language')
-    expect(keys).toContain('submission__submissionPdfLink')
-    expect(keys).toContain('submission__pdfFile')
+  test('sample is the event envelope: answers once, display under the same keys, PDF outputs', () => {
+    const { sample } = trigger.operation
+    expect(sample.apiVersion).toBeTruthy()
+    expect(sample.data.submission.language).toBeTruthy()
+    expect(sample.data.submission.pdfUrl).toBeTruthy()
+    expect(sample.data.submission.pdfFile).toBeTruthy()
+    expect(sample).not.toHaveProperty('fields')
+    // A repeating group nests one row per instance in answers; display joins them.
+    expect(Array.isArray(sample.data.answers.attendees)).toBe(true)
+    expect(Object.keys(sample.data.display)).toEqual(Object.keys(sample.data.answers))
+  })
 
-    // Repeating-group members carry an array raw value; display joins them.
-    const grouped = trigger.operation.sample.fields.find((f) => Array.isArray(f.value.raw))
-    expect(grouped).toBeDefined()
-    expect(grouped.value.display).toBe(grouped.value.raw.join(', '))
-    expect(trigger.operation.sample.submission.language).toBeTruthy()
+  test('outputFields lists the envelope plus one answers/display pair per published field, from fields.list', async () => {
+    nock(FAKE_BASE)
+      .post('/api/v1', (b) => b.method === 'fields.list' && b.params.formId === 'form_1')
+      .reply(200, {
+        ok: true,
+        data: {
+          items: [
+            { key: 'your_name', type: 'text', title: 'Your name', required: true, prefillable: true },
+            { key: 'seats', type: 'number', title: 'Seats', required: false, prefillable: true },
+            {
+              key: 'attendees',
+              type: 'group',
+              repeating: true,
+              members: [{ key: 'attendee_name', type: 'text', title: 'Attendee name', required: false, prefillable: true }],
+            },
+          ],
+          hasMore: false,
+        },
+      })
+
+    const fields = await trigger.operation.outputFields[0](makeZ(), {
+      authData: { access_token: 'fbo_x' },
+      inputData: { formId: 'form_1' },
+    })
+    const keys = fields.map((f) => f.key)
+    expect(keys).toContain('data__submission__language')
+    expect(keys).toContain('data__submission__pdfUrl')
+    expect(keys).toContain('data__submission__pdfFile')
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        { key: 'data__answers__your_name', label: 'Your name' },
+        { key: 'data__display__your_name', label: 'Your name (display)', type: 'string' },
+        { key: 'data__answers__seats', label: 'Seats', type: 'number' },
+        { key: 'data__answers__attendees[]attendee_name', label: 'attendees › Attendee name' },
+        { key: 'data__display__attendees', label: 'attendees (display)', type: 'string' },
+      ])
+    )
+  })
+
+  test('outputFields falls back to the envelope alone before a form is chosen', async () => {
+    const fields = await trigger.operation.outputFields[0](makeZ(), { authData: {}, inputData: {} })
+    expect(fields.map((f) => f.key)).toContain('data__form__id')
+    expect(fields.some((f) => f.key.startsWith('data__answers__'))).toBe(false)
   })
 
   test('inputFields[0].dynamic loads forms via forms.list', async () => {
@@ -255,15 +300,15 @@ describe('submission trigger', () => {
 
   test('perform accepts a valid signed webhook and returns [bundle.cleanedRequest]', async () => {
     const z = makeZ()
-    const cleaned = { eventId: 'e1', eventType: 'SUBMIT_RESPONSE' }
+    const cleaned = { id: 'e1', type: 'submission.completed' }
     const bundle = makeSignedWebhookBundle(cleaned)
     const result = await trigger.operation.perform(z, bundle)
     expect(result).toEqual([cleaned])
   })
 
-  test('perform preserves ABANDON_RESPONSE from a signed abandoned-submission webhook', async () => {
+  test('perform preserves submission.abandoned from a signed abandoned-submission webhook', async () => {
     const z = makeZ()
-    const cleaned = { eventId: 'e_abandoned', eventType: 'ABANDON_RESPONSE' }
+    const cleaned = { id: 'e_abandoned', type: 'submission.abandoned' }
     const result = await trigger.operation.perform(z, makeSignedWebhookBundle(cleaned))
 
     expect(result).toEqual([cleaned])
@@ -271,7 +316,7 @@ describe('submission trigger', () => {
 
   test('perform rejects unsigned, invalid, and expired webhook requests', async () => {
     const z = makeZ()
-    const cleaned = { eventId: 'e1', eventType: 'SUBMIT_RESPONSE' }
+    const cleaned = { id: 'e1', type: 'submission.completed' }
 
     await expect(trigger.operation.perform(z, { cleanedRequest: cleaned })).rejects.toThrow(/webhook signature/i)
 
@@ -288,29 +333,36 @@ describe('submission trigger', () => {
   test('perform adds lazy PDF file hydrator when payload has PDF link', async () => {
     const z = makeZ()
     const cleaned = {
-      eventId: 'e1',
-      eventType: 'SUBMIT_RESPONSE',
-      form: { id: 'form_1' },
-      submission: {
-        id: 'sub_1',
-        submissionPdfLink: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
+      id: 'e1',
+      type: 'submission.completed',
+      data: {
+        form: { id: 'form_1' },
+        submission: {
+          id: 'sub_1',
+          pdfUrl: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
+        },
       },
     }
     const result = await trigger.operation.perform(z, makeSignedWebhookBundle(cleaned))
-    expect(result[0].submission.pdfFile).toBe('hydrate-file:form_1:sub_1')
+    expect(result[0].data.submission.pdfFile).toBe('hydrate-file:form_1:sub_1')
   })
 
   test.each([
-    ['submission_created', 'SUBMIT_RESPONSE'],
-    ['submission_abandoned', 'ABANDON_RESPONSE'],
+    ['submission_created', 'submission.completed'],
+    ['submission_abandoned', 'submission.abandoned'],
   ])('performList returns a sample matching selected %s event', async (selectedEventType, expectedPayloadEventType) => {
     const sample = {
-      eventId: 'e_sample',
-      eventType: 'SUBMIT_RESPONSE',
-      eventTimestamp: '2026-01-01T00:00:00.000Z',
-      form: { id: 'form_1', name: 'Test' },
-      submission: { id: 's1', respondentEmail: 'r@e.com', submittedAt: '2026-01-01T00:00:00.000Z' },
-      fields: [],
+      id: 'e_sample',
+      type: 'submission.completed',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      apiVersion: '2026-09-22',
+      test: true,
+      data: {
+        form: { id: 'form_1', name: 'Test', snapshotId: null },
+        submission: { id: 's1', respondentEmail: 'r@e.com', submittedAt: '2026-01-01T00:00:00.000Z', pdfUrl: null, language: 'en' },
+        answers: {},
+        display: {},
+      },
     }
     nock(FAKE_BASE)
       .post('/api/v1', (b) => b.method === 'submissions.sample' && b.params.formId === 'form_1')
@@ -322,7 +374,7 @@ describe('submission trigger', () => {
       inputData: { formId: 'form_1', eventType: selectedEventType },
     }
     const result = await trigger.operation.performList(z, bundle)
-    expect(result).toEqual([{ ...sample, eventType: expectedPayloadEventType }])
+    expect(result).toEqual([{ ...sample, type: expectedPayloadEventType }])
   })
 
   test('downloadSubmissionPdf hydrator calls submissions.pdf and returns URL', async () => {

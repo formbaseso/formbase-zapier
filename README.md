@@ -23,14 +23,18 @@ and `package-lock.json`, as required by the Zapier CLI.
   choose a required idle window: 12 hours, 1 day, 3 days, or 1 week. formbase
   checks idle drafts hourly, so delivery can occur up to one hour after the
   selected threshold. Completed-submission subscriptions receive both new
-  (`SUBMIT_RESPONSE`) and later edited (`UPDATE_RESPONSE`) payloads; no separate
-  updated-submission trigger is needed. Abandoned-submission subscriptions
-  receive `ABANDON_RESPONSE`. Samples come from `submissions.sample`; Zapier
-  labels an abandoned trigger's sample `ABANDON_RESPONSE` so filters and mapped
-  fields reflect its live payload. Payload carries
-  `submission.language` (BCP-47). Repeating-group member fields:
-  `fields[].value.raw` is an array of per-row values, `.display` joins them with
-  ", "; all other fields scalar.
+  (`submission.completed`) and later edited (`submission.updated`) events; no
+  separate updated-submission trigger is needed. Abandoned-submission
+  subscriptions receive `submission.abandoned`. Samples come from
+  `submissions.sample`; Zapier labels an abandoned trigger's sample
+  `submission.abandoned` so filters and mapped fields reflect its live payload.
+  Every event is the formbase envelope `{ id, type, createdAt, apiVersion, test,
+  data }`: `data.answers` holds each answer once under its field key,
+  `data.display` the readable text under the same key, and
+  `data.submission.language` the BCP-47 language. Output fields are built per
+  form from `fields.list` (`data__answers__<key>`, `data__display__<key>`; a
+  repeating group's members are line items under the group key), so the Zap
+  editor shows real question titles.
 - **Webhook verification** — each REST Hook subscription generates a unique
   signing secret, passes it to `webhooks.create`, stores it in Zapier's
   `subscribeData`, and verifies `X-formbase-Signature` against the exact raw

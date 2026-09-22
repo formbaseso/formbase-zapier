@@ -16,9 +16,10 @@ const WEBHOOK_EVENT_CHOICES = {
   [WEBHOOK_EVENTS.abandoned]: 'Submission abandoned',
 }
 
+// The `type` of the event formbase POSTs for each subscription.
 const PAYLOAD_EVENT_TYPES = {
-  [WEBHOOK_EVENTS.created]: 'SUBMIT_RESPONSE',
-  [WEBHOOK_EVENTS.abandoned]: 'ABANDON_RESPONSE',
+  [WEBHOOK_EVENTS.created]: 'submission.completed',
+  [WEBHOOK_EVENTS.abandoned]: 'submission.abandoned',
 }
 
 const WEBHOOK_IDLE_WINDOW_CHOICES = {
@@ -31,64 +32,94 @@ const WEBHOOK_IDLE_WINDOW_CHOICES = {
 const SIGNATURE_HEADER_PATTERN = /^t=(\d+),sha256=([a-f0-9]{64})$/
 const SIGNATURE_MAX_AGE_SECONDS = 5 * 60
 
+// The event envelope formbase sends (docs/external-api.md § Events): every
+// answer once in `data.answers` (keyed by field key), its readable text under
+// the same key in `data.display`.
 const SAMPLE = {
-  eventId: 'evt_01HEXAMPLEEXAMPLE',
-  eventType: 'SUBMIT_RESPONSE',
-  eventTimestamp: '2026-04-26T12:34:56.000Z',
-  form: { id: 'form_abc123', name: 'Customer Feedback' },
-  submission: {
-    id: 'sub_xyz789',
-    respondentEmail: 'respondent@example.com',
-    submittedAt: '2026-04-26T12:34:56.000Z',
-    submissionPdfLink: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
-    pdfFile: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
-    // BCP-47 language the respondent submitted in (translated forms); null otherwise.
-    language: 'en',
+  id: 'evt_01HEXAMPLEEXAMPLE',
+  type: 'submission.completed',
+  createdAt: '2026-04-26T12:34:56.000Z',
+  apiVersion: '2026-09-22',
+  test: false,
+  data: {
+    form: { id: 'form_abc123', name: 'Customer Feedback', snapshotId: 'snap_abc123' },
+    submission: {
+      id: 'sub_xyz789',
+      respondentEmail: 'respondent@example.com',
+      submittedAt: '2026-04-26T12:34:56.000Z',
+      pdfUrl: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
+      pdfFile: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
+      // BCP-47 language the respondent submitted in (translated forms); null otherwise.
+      language: 'en',
+    },
+    answers: {
+      your_name: 'Ada Lovelace',
+      how_likely_to_recommend: 9,
+      // A repeating group: one row object per instance, keyed by member field key.
+      attendees: [{ attendee_name: 'Grace Hopper' }, { attendee_name: 'Alan Turing' }],
+    },
+    display: {
+      your_name: 'Ada Lovelace',
+      how_likely_to_recommend: '9',
+      attendees: 'Grace Hopper, Alan Turing',
+    },
   },
-  fields: [
-    {
-      fieldId: 'fld_name',
-      title: 'Your name',
-      type: 'short_text',
-      value: { raw: 'Ada Lovelace', display: 'Ada Lovelace' },
-    },
-    {
-      fieldId: 'fld_rating',
-      title: 'How likely to recommend?',
-      type: 'rating',
-      value: { raw: 9, display: '9' },
-    },
-    {
-      // Repeating-group member: `raw` is the array of every per-row value in
-      // live order; `display` joins them with ", ".
-      fieldId: 'fld_attendee',
-      title: 'Attendee name',
-      type: 'short_text',
-      value: { raw: ['Grace Hopper', 'Alan Turing'], display: 'Grace Hopper, Alan Turing' },
-    },
-  ],
 }
 
-// Static output fields derived from the sample (v1 — no dynamic schema fetch).
-const OUTPUT_FIELDS = [
-  { key: 'eventId', label: 'Event ID', type: 'string' },
-  { key: 'eventType', label: 'Event Type', type: 'string' },
-  { key: 'eventTimestamp', label: 'Event Timestamp', type: 'datetime' },
-  { key: 'form__id', label: 'Form ID', type: 'string' },
-  { key: 'form__name', label: 'Form Name', type: 'string' },
-  { key: 'submission__id', label: 'Submission ID', type: 'string' },
-  { key: 'submission__respondentEmail', label: 'Respondent Email', type: 'string' },
-  { key: 'submission__submittedAt', label: 'Submitted At', type: 'datetime' },
-  { key: 'submission__submissionPdfLink', label: 'PDF Link', type: 'string' },
-  { key: 'submission__pdfFile', label: 'PDF File', type: 'file' },
-  { key: 'submission__language', label: 'Submission Language', type: 'string' },
-  { key: 'fields[]fieldId', label: 'Field ID', type: 'string' },
-  { key: 'fields[]title', label: 'Field Title', type: 'string' },
-  { key: 'fields[]type', label: 'Field Type', type: 'string' },
-  // raw is an array for repeating-group members (one entry per row), scalar otherwise.
-  { key: 'fields[]value__raw', label: 'Field Value (raw)' },
-  { key: 'fields[]value__display', label: 'Field Value (display)', type: 'string' },
+// The envelope's own fields; the per-form answer fields are added by
+// `outputFields` from fields.list, so a Zap editor sees real question titles.
+const ENVELOPE_OUTPUT_FIELDS = [
+  { key: 'id', label: 'Event ID', type: 'string' },
+  { key: 'type', label: 'Event Type', type: 'string' },
+  { key: 'createdAt', label: 'Event Timestamp', type: 'datetime' },
+  { key: 'test', label: 'Test Event', type: 'boolean' },
+  { key: 'data__form__id', label: 'Form ID', type: 'string' },
+  { key: 'data__form__name', label: 'Form Name', type: 'string' },
+  { key: 'data__submission__id', label: 'Submission ID', type: 'string' },
+  { key: 'data__submission__respondentEmail', label: 'Respondent Email', type: 'string' },
+  { key: 'data__submission__submittedAt', label: 'Submitted At', type: 'datetime' },
+  { key: 'data__submission__pdfUrl', label: 'PDF Link', type: 'string' },
+  { key: 'data__submission__pdfFile', label: 'PDF File', type: 'file' },
+  { key: 'data__submission__language', label: 'Submission Language', type: 'string' },
 ]
+
+const ZAPIER_TYPE_BY_FIELD_TYPE = {
+  number: 'number',
+  rating: 'number',
+  scale: 'number',
+  switch: 'boolean',
+  date: 'datetime',
+}
+
+/**
+ * One Zapier output field per answer, from the form's published field list:
+ * `data__answers__<key>` carries the stored value, `data__display__<key>` the
+ * readable text. A repeating group's members are line items under the group key.
+ */
+async function outputFields(z, bundle) {
+  const formId = bundle.inputData.formId
+  if (!formId) return ENVELOPE_OUTPUT_FIELDS
+
+  const data = await formbaseRpc({ z, bundle, method: 'fields.list', params: { formId } })
+  const fields = []
+  for (const item of data?.items ?? []) {
+    if (Array.isArray(item.members)) {
+      // A group entry carries no title of its own; its key is what the caller addresses it by.
+      for (const member of item.members) {
+        fields.push({ key: `data__answers__${item.key}[]${member.key}`, label: `${item.key} › ${member.title}` })
+      }
+      fields.push({ key: `data__display__${item.key}`, label: `${item.key} (display)`, type: 'string' })
+      continue
+    }
+    fields.push({
+      key: `data__answers__${item.key}`,
+      label: item.title,
+      ...(ZAPIER_TYPE_BY_FIELD_TYPE[item.type] ? { type: ZAPIER_TYPE_BY_FIELD_TYPE[item.type] } : {}),
+    })
+    fields.push({ key: `data__display__${item.key}`, label: `${item.title} (display)`, type: 'string' })
+  }
+  return [...ENVELOPE_OUTPUT_FIELDS, ...fields]
+}
 
 async function performSubscribe(z, bundle) {
   const eventType = bundle.inputData.eventType
@@ -147,21 +178,24 @@ async function performList(z, bundle) {
 }
 
 function withSelectedPayloadEventType(payload, webhookEventType) {
-  const eventType = PAYLOAD_EVENT_TYPES[webhookEventType]
-  if (!eventType || payload?.eventType === eventType) return payload
-  return { ...payload, eventType }
+  const type = PAYLOAD_EVENT_TYPES[webhookEventType]
+  if (!type || payload?.type === type) return payload
+  return { ...payload, type }
 }
 
 function addPdfFileHydrator(z, payload) {
-  const formId = payload?.form?.id
-  const submissionId = payload?.submission?.id
-  const pdfLink = payload?.submission?.submissionPdfLink
-  if (!formId || !submissionId || !pdfLink) return payload
+  const formId = payload?.data?.form?.id
+  const submissionId = payload?.data?.submission?.id
+  const pdfUrl = payload?.data?.submission?.pdfUrl
+  if (!formId || !submissionId || !pdfUrl) return payload
   return {
     ...payload,
-    submission: {
-      ...payload.submission,
-      pdfFile: z.dehydrateFile(hydrators.downloadSubmissionPdf, { formId, submissionId }),
+    data: {
+      ...payload.data,
+      submission: {
+        ...payload.data.submission,
+        pdfFile: z.dehydrateFile(hydrators.downloadSubmissionPdf, { formId, submissionId }),
+      },
     },
   }
 }
@@ -255,7 +289,7 @@ const trigger = {
     perform,
     performList,
     sample: SAMPLE,
-    outputFields: OUTPUT_FIELDS,
+    outputFields: [outputFields],
   },
 }
 
