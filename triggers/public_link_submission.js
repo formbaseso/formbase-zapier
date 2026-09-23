@@ -124,8 +124,8 @@ function getIdleWindowInputFields(_z, bundle) {
 }
 
 const trigger = {
-  key: 'submission',
-  noun: 'Submission',
+  key: 'public_link_submission',
+  noun: 'Public Link Submission',
   display: {
     label: 'Public Link Submission',
     description:

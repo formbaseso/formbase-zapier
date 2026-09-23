@@ -16,7 +16,7 @@ and `package-lock.json`, as required by the Zapier CLI.
   - `test` calls `me.get` (`{ id, email, name }`) so the label renders `{{email}}`.
   - Env vars: `CLIENT_ID`, `CLIENT_SECRET` (see setup below), optional `BASE_URL`
     (default `https://api.formbase.so`).
-- **Trigger `submission`** (REST Hooks) — subscribes via `webhooks.create`,
+- **Trigger `public_link_submission`** (REST Hooks) — subscribes via `webhooks.create`,
   unsubscribes via `webhooks.delete`, and offers `submission_created` plus
   `submission_abandoned` (requires partial-submission tracking). Abandoned Zaps
   choose a required idle window: 12 hours, 1 day, 3 days, or 1 week; formbase

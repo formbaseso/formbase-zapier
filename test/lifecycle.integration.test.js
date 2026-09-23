@@ -38,7 +38,7 @@ beforeAll(async () => {
   // utils/request reads BASE_URL at load, so the app is required after the server is up.
   process.env.BASE_URL = formbase.baseUrl
   jest.isolateModules(() => {
-    trigger = require('../triggers/submission')
+    trigger = require('../triggers/public_link_submission')
     hydrators = require('../hydrators')
     formList = require('../triggers/form_list')
     requestCompleted = require('../triggers/request_completed')

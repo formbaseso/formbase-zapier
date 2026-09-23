@@ -3,7 +3,7 @@ process.env.BASE_URL = 'https://fake.formbase.test'
 
 const nock = require('nock')
 const hydrators = require('../hydrators')
-const trigger = require('../triggers/submission')
+const trigger = require('../triggers/public_link_submission')
 const { listForms } = require('../utils/list_forms')
 const { makeZ, makeSignedWebhookBundle } = require('./helpers')
 
@@ -18,8 +18,8 @@ function rpc(method, predicate = () => true) {
 }
 
 describe('submission trigger definition', () => {
-  test('is a REST hook trigger keyed `submission`, so live Zaps migrate instead of breaking', () => {
-    expect(trigger.key).toBe('submission')
+  test('is a REST hook trigger keyed `public_link_submission`, the key that matches its label', () => {
+    expect(trigger.key).toBe('public_link_submission')
     expect(trigger.operation.type).toBe('hook')
     expect(trigger.operation.cleanInputData).toBe(false)
     expect(trigger.operation.sample.type).toBe('submission.completed')

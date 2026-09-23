@@ -1,8 +1,12 @@
 # Changelog
 
+## 2.0.0
+
+- Remove trigger/submission and add trigger/public_link_submission: the same trigger under the key that matches its label. Zaps built on `submission` do not migrate; rebuild them on Public Link Submission. Zapier requires a major version for a removed trigger.
+
 ## 1.3.1
 
-- Update trigger/submission: renamed to Public Link Submission, so the trigger list says which channel it covers. The key `submission` is unchanged; existing Zaps keep working.
+- Update trigger/submission: renamed to Public Link Submission, so the trigger list says which channel it covers.
 - Update trigger/request_completed: the description says it is the only event a completed request fires.
 
 ## 1.3.0
