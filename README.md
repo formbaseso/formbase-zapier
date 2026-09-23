@@ -27,9 +27,10 @@ and `package-lock.json`, as required by the Zapier CLI.
   Zaps migrate instead of breaking.
   - Every event is the formbase envelope `{ id, type, createdAt, apiVersion,
     test, data }`: `data.answers` holds each answer once under its field key,
-    `data.display` the readable text under the same key, `data.submission` the
-    email, timestamp, PDF link and language, and `data.request` the request a
-    submission answered, when it did.
+    `data.display` the readable text under the same key and `data.submission`
+    the email, timestamp, PDF link and language. It fires for share-link
+    submissions only: a completed request never reaches it (one channel, one
+    event), so no `data.request` block appears here.
   - Output fields are built per form from `fields.list`
     (`data__answers__<key>` and `data__display__<key>`, labelled with the
     question title). A repeating group's members are line items under the
@@ -61,9 +62,9 @@ and `package-lock.json`, as required by the Zapier CLI.
     `data.display`, and lists one output per field key from `fields.list`
     like the Submission trigger does. Expired and canceled list the request
     block alone.
-  - A completed request fires both **Request Completed** and **Submission**;
-    a Zap that should react only to requests uses Request Completed, and the
-    Submission trigger's help text says so.
+  - A completed request fires **Request Completed** alone, never
+    **Submission**. A Zap that wants every answer, whichever channel produced
+    it, is one Zap on each trigger.
 - **Actions** (`creates/`):
   - **Create Request** (`create_request`, `requests.create`) — pick a form,
     and the editor loads one input per prefillable field key (`prefill`),

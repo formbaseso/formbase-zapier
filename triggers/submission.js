@@ -73,9 +73,6 @@ const SAMPLE = {
 const ENVELOPE_OUTPUT_FIELDS = [
   ...EVENT_OUTPUT_FIELDS,
   ...SUBMISSION_OUTPUT_FIELDS,
-  // Present only when the submission answered a request.
-  { key: 'data__request__id', label: 'Request ID', type: 'string' },
-  { key: 'data__request__externalId', label: 'Request External ID', type: 'string' },
 ]
 
 async function outputFields(z, bundle) {
@@ -131,7 +128,7 @@ const trigger = {
   noun: 'Submission',
   display: {
     label: 'Submission',
-    description: 'Triggers when a customer completes a request or submits a form, or abandons a submission.',
+    description: 'Triggers when someone submits the form through its share link, or abandons a submission.',
   },
   operation: {
     type: 'hook',
@@ -144,7 +141,7 @@ const trigger = {
         required: true,
         dynamic: 'form_list.id.name',
         helpText:
-          'Choose which formbase form should fire this Zap. A request created for this form fires it too; the event then carries Request ID and Request External ID. For a Zap that should only react to requests, use the Request Completed trigger instead.',
+          'Choose which formbase form should fire this Zap. It fires for share-link submissions only; a completed request fires the Request Completed trigger instead, never this one.',
       },
       {
         key: 'eventType',

@@ -103,7 +103,8 @@ describe('outputFields', () => {
 
     const fields = await outputFields({ formId: 'form_1' })
     const keys = fields.map((field) => field.key)
-    expect(keys).toEqual(expect.arrayContaining(['data__submission__pdfFile', 'data__request__id', 'data__request__externalId']))
+    expect(keys).toEqual(expect.arrayContaining(['data__submission__pdfFile']))
+    expect(keys).not.toContain('data__request__id')
     expect(fields).toEqual(
       expect.arrayContaining([
         { key: 'data__answers__your_name', label: 'Your name' },

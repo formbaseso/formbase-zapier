@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.0
+
+- Update trigger/submission: fire for share-link submissions only. A completed request no longer fires the Submission trigger (formbase ADR 0030, one channel, one event), so a Zap on Submission and a Zap on Request Completed run one each per completion and the Filter on Request ID is no longer needed. The Request ID and Request External ID outputs are gone from the Submission trigger, since no event it receives can carry them; a Zap that wants every answer, whichever channel produced it, is one Zap on each trigger.
+- Update trigger/request_completed: the Form help text no longer warns about a second event on the Submission trigger.
+
 ## 1.2.0
 
 - Add create/create_request: create a request for a form. The editor loads one input per prefillable field key, one per hidden field marked as context, and a multi-select of the prefilled keys to lock, all from `fields.list`; recipient, language, delivery, reminders, expiry, external id, metadata and test mode are plain inputs. The external id doubles as the idempotency key, so a replayed Zap run reuses the request. The output carries the share link.

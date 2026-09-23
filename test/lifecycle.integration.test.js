@@ -64,7 +64,7 @@ test('a Zap goes from form picker to delivered submission and back to unsubscrib
   // 2. The Zap editor labels outputs from the published field list.
   const outputs = await trigger.operation.outputFields[0](z, { authData, inputData: { formId: 'form_live' } })
   expect(outputs.map((field) => field.label)).toEqual(
-    expect.arrayContaining(['Company', 'Plan (display)', 'contacts › Name', 'Request ID'])
+    expect.arrayContaining(['Company', 'Plan (display)', 'contacts › Name'])
   )
 
   // 3. Testing the trigger fetches a sample of the same shape.
