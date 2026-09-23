@@ -3,7 +3,7 @@ process.env.BASE_URL = 'https://fake.formbase.test'
 
 const nock = require('nock')
 const hydrators = require('../hydrators')
-const trigger = require('../triggers/public_link_submission')
+const trigger = require('../triggers/public_link_submission_created')
 const updatedTrigger = require('../triggers/public_link_submission_updated')
 const abandonedTrigger = require('../triggers/public_link_submission_abandoned')
 const { listForms } = require('../utils/list_forms')
@@ -20,7 +20,7 @@ function rpc(method, predicate = () => true) {
 }
 
 const TRIGGERS = [
-  { trigger, key: 'public_link_submission', label: 'Public Link Submission Created', eventType: 'submission_created', payloadType: 'submission.completed' },
+  { trigger, key: 'public_link_submission_created', label: 'Public Link Submission Created', eventType: 'submission_created', payloadType: 'submission.completed' },
   { trigger: updatedTrigger, key: 'public_link_submission_updated', label: 'Public Link Submission Updated', eventType: 'submission_updated', payloadType: 'submission.updated' },
   { trigger: abandonedTrigger, key: 'public_link_submission_abandoned', label: 'Public Link Submission Abandoned', eventType: 'submission_abandoned', payloadType: 'submission.abandoned' },
 ]

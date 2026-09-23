@@ -16,13 +16,13 @@ and `package-lock.json`, as required by the Zapier CLI.
   - `test` calls `me.get` (`{ id, email, name }`) so the label renders `{{email}}`.
   - Env vars: `CLIENT_ID`, `CLIENT_SECRET` (see setup below), optional `BASE_URL`
     (default `https://api.formbase.so`).
-- **Public-link submission triggers** (`triggers/public_link_submission.js`,
+- **Public-link submission triggers** (`triggers/public_link_submission_created.js`,
   `triggers/public_link_submission_updated.js`,
   `triggers/public_link_submission_abandoned.js`, built by one factory in
   `utils/public_link_submission_trigger.js`) — REST Hooks that subscribe via
   `webhooks.create`, unsubscribe via `webhooks.delete`, and each deliver one
   event type:
-  - **Public Link Submission Created** (`public_link_submission`) subscribes
+  - **Public Link Submission Created** (`public_link_submission_created`) subscribes
     to `submission_created` and receives `submission.completed` for a new
     submission.
   - **Public Link Submission Updated** (`public_link_submission_updated`)

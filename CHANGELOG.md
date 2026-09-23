@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.0
+
+- Breaking: remove trigger/public_link_submission and add trigger/public_link_submission_created: Public Link Submission Created under the key that matches its label and its Updated and Abandoned siblings. Behaviour is unchanged. Zaps built on `public_link_submission` do not migrate; rebuild them on Public Link Submission Created. No 3.0.0 Zap exists, so nothing needs rebuilding.
+
 ## 3.0.0
 
 - Breaking: replace the Event field of Public Link Submission with one trigger per event. Triggers show up in Zapier's trigger picker, where an option inside a dropdown does not, and each trigger now carries only the inputs its event needs.
