@@ -10,18 +10,22 @@ const { EVENT_OUTPUT_FIELDS, SUBMISSION_OUTPUT_FIELDS, addPdfFileHydrator } = re
 // What a subscription watches (`webhooks.create` eventType) …
 const WEBHOOK_EVENTS = {
   created: 'submission_created',
+  updated: 'submission_updated',
   abandoned: 'submission_abandoned',
 }
 
 const WEBHOOK_EVENT_CHOICES = {
   [WEBHOOK_EVENTS.created]: 'Submission created',
+  [WEBHOOK_EVENTS.updated]: 'Submission updated',
   [WEBHOOK_EVENTS.abandoned]: 'Submission abandoned',
 }
 
-// … and the `type` of the event each one delivers. A created subscription also
-// receives `submission.updated` when a completed submission is edited.
+// … and the `type` of the event each one delivers: one type per subscription.
+// An updated subscription receives `submission.updated` when a respondent edits
+// a submission they already sent; a created subscription never does.
 const PAYLOAD_EVENT_TYPES = {
   [WEBHOOK_EVENTS.created]: 'submission.completed',
+  [WEBHOOK_EVENTS.updated]: 'submission.updated',
   [WEBHOOK_EVENTS.abandoned]: 'submission.abandoned',
 }
 
@@ -102,7 +106,7 @@ async function performList(z, bundle) {
   const { formId, eventType } = bundle.inputData
   const sample = await formbaseRpc({ z, bundle, method: 'submissions.sample', params: { formId } })
   // submissions.sample always describes a completed submission; relabel it so an
-  // abandoned-submission Zap tests against the event type it will receive.
+  // updated- or abandoned-submission Zap tests against the event type it will receive.
   return [addPdfFileHydrator(z, { ...sample, type: PAYLOAD_EVENT_TYPES[eventType] })]
 }
 
@@ -129,7 +133,7 @@ const trigger = {
   display: {
     label: 'Public Link Submission',
     description:
-      'Triggers when a respondent submits the form through its public link, updates that submission later, or abandons it. A completed request fires Request Completed instead.',
+      'Triggers when a respondent submits the form through its public link, updates a submission they sent, or abandons one. A completed request fires Request Completed instead.',
   },
   operation: {
     type: 'hook',
@@ -153,7 +157,7 @@ const trigger = {
         default: WEBHOOK_EVENTS.created,
         altersDynamicFields: true,
         helpText:
-          'Submission created fires for a new submission and again when the respondent updates it later (event type submission.updated). Submission abandoned needs partial-submission tracking on the workspace.',
+          'Submission created fires for a new submission. Submission updated fires when the respondent edits a submission they already sent (the form must allow editing after submit). Submission abandoned needs partial-submission tracking on the workspace.',
       },
       getIdleWindowInputFields,
     ],

@@ -17,14 +17,18 @@ and `package-lock.json`, as required by the Zapier CLI.
   - Env vars: `CLIENT_ID`, `CLIENT_SECRET` (see setup below), optional `BASE_URL`
     (default `https://api.formbase.so`).
 - **Trigger `public_link_submission`** (REST Hooks) — subscribes via `webhooks.create`,
-  unsubscribes via `webhooks.delete`, and offers `submission_created` plus
-  `submission_abandoned` (requires partial-submission tracking). Abandoned Zaps
-  choose a required idle window: 12 hours, 1 day, 3 days, or 1 week; formbase
-  sweeps idle drafts hourly, so delivery can occur up to one hour after the
-  threshold. A created subscription receives both `submission.completed` and
-  `submission.updated` (an edited submission); an abandoned subscription
-  receives `submission.abandoned`. The trigger key stays `submission` so live
-  Zaps migrate instead of breaking.
+  unsubscribes via `webhooks.delete`, and offers three events, each delivering
+  one event type:
+  - `submission_created` (Submission created) receives `submission.completed`
+    for a new submission.
+  - `submission_updated` (Submission updated) receives `submission.updated`
+    when the respondent edits a submission they already sent; the form must
+    allow editing after submit.
+  - `submission_abandoned` (Submission abandoned, requires partial-submission
+    tracking) receives `submission.abandoned`. Abandoned Zaps choose a
+    required idle window: 12 hours, 1 day, 3 days, or 1 week; formbase sweeps
+    idle drafts hourly, so delivery can occur up to one hour after the
+    threshold.
   - Every event is the formbase envelope `{ id, type, createdAt, apiVersion,
     test, data }`: `data.answers` holds each answer once under its field key,
     `data.display` the readable text under the same key and `data.submission`
@@ -36,9 +40,9 @@ and `package-lock.json`, as required by the Zapier CLI.
     question title). A repeating group's members are line items under the
     group key; a matrix gets one field per row. A form that is not published
     yet lists the envelope alone, so a Zap can be wired up before publishing.
-  - Samples come from `submissions.sample`, relabelled `submission.abandoned`
-    for an abandoned trigger so filters and mapped fields reflect its live
-    payload.
+  - Samples come from `submissions.sample`, relabelled `submission.updated` or
+    `submission.abandoned` for an updated or abandoned trigger so filters and
+    mapped fields reflect its live payload.
   - The PDF File output hydrates from `submissions.pdf` when the event carries
     `data.submission.pdfUrl`; an event that carries a PDF without the ids to
     hydrate it fails loudly instead of dropping the output.

@@ -41,21 +41,28 @@ describe('submission trigger definition', () => {
     expect(formField).toMatchObject({ required: true, dynamic: 'form_list.id.name' })
   })
 
-  test('offers completed and abandoned submission events, created by default', () => {
+  test('offers created, updated and abandoned submission events, created by default', () => {
     const eventField = trigger.operation.inputFields.find((field) => field.key === 'eventType')
     expect(eventField).toMatchObject({
       required: true,
       default: 'submission_created',
-      choices: { submission_created: 'Submission created', submission_abandoned: 'Submission abandoned' },
+      choices: {
+        submission_created: 'Submission created',
+        submission_updated: 'Submission updated',
+        submission_abandoned: 'Submission abandoned',
+      },
       altersDynamicFields: true,
     })
-    expect(eventField.helpText).toMatch(/submission\.updated/)
+    expect(Object.keys(eventField.choices)).toEqual(['submission_created', 'submission_updated', 'submission_abandoned'])
+    expect(eventField.helpText).toMatch(/Submission updated fires when the respondent edits/)
+    expect(eventField.helpText).not.toMatch(/again/)
   })
 
   test('only asks for an idle window when abandoned submissions are selected', () => {
     const dynamicField = trigger.operation.inputFields.find((field) => typeof field === 'function')
 
     expect(dynamicField(makeZ(), { inputData: { eventType: 'submission_created' } })).toEqual([])
+    expect(dynamicField(makeZ(), { inputData: { eventType: 'submission_updated' } })).toEqual([])
 
     const [idleWindowField] = dynamicField(makeZ(), { inputData: { eventType: 'submission_abandoned' } })
     expect(idleWindowField).toMatchObject({
@@ -169,6 +176,28 @@ describe('subscribe / unsubscribe', () => {
     expect(result).toEqual({ id: 'int_1', signingSecret: sent.signingSecret })
   })
 
+  test('performSubscribe registers submission_updated without an idle window', async () => {
+    let sent
+    rpc('webhooks.create', (params) => {
+      sent = params
+      return true
+    }).reply(200, { ok: true, data: { subscriptionId: 'int_3', eventType: 'submission_updated' } })
+
+    await trigger.operation.performSubscribe(makeZ(), {
+      authData,
+      targetUrl: 'https://hooks.zapier.com/updated',
+      inputData: { formId: 'form_1', eventType: 'submission_updated', idleWindow: '3d' },
+    })
+
+    expect(sent).toEqual({
+      formId: 'form_1',
+      targetUrl: 'https://hooks.zapier.com/updated',
+      provider: 'zapier',
+      eventType: 'submission_updated',
+      signingSecret: expect.stringMatching(/^whsec_[a-f0-9]{64}$/),
+    })
+  })
+
   test('performSubscribe registers submission_abandoned with its idle window', async () => {
     let sent
     rpc('webhooks.create', (params) => {
@@ -259,6 +288,7 @@ describe('performList (the sample Zapier tests with)', () => {
 
   test.each([
     ['submission_created', 'submission.completed'],
+    ['submission_updated', 'submission.updated'],
     ['submission_abandoned', 'submission.abandoned'],
   ])('relabels submissions.sample to the event type a %s subscription receives', async (eventType, expectedType) => {
     const sample = { id: 'e_sample', type: 'submission.completed', test: true, data: { form: { id: 'form_1' }, submission: { id: 's1', pdfUrl: null }, answers: {}, display: {} } }

@@ -130,6 +130,22 @@ test('an abandoned-submission Zap registers its idle window and tests against su
   await trigger.operation.performUnsubscribe(z, { authData, subscribeData })
 })
 
+test('an updated-submission Zap registers without an idle window and tests against submission.updated', async () => {
+  const subscribeData = await trigger.operation.performSubscribe(z, {
+    authData,
+    targetUrl: 'https://hooks.zapier.com/hooks/standard/3',
+    inputData: { formId: 'form_live', eventType: 'submission_updated' },
+  })
+  const subscription = formbase.subscriptions.get(subscribeData.id)
+  expect(subscription).toMatchObject({ eventType: 'submission_updated' })
+  expect(subscription).not.toHaveProperty('idleWindow')
+
+  const [sample] = await trigger.operation.performList(z, { authData, inputData: { formId: 'form_live', eventType: 'submission_updated' } })
+  expect(sample.type).toBe('submission.updated')
+
+  await trigger.operation.performUnsubscribe(z, { authData, subscribeData })
+})
+
 test('a Zap on an unpublished form still gets the envelope outputs', async () => {
   const outputs = await trigger.operation.outputFields[0](z, { authData, inputData: { formId: 'form_draft' } })
   expect(outputs.map((field) => field.key)).toContain('data__form__name')

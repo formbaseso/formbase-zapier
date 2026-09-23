@@ -5,7 +5,7 @@ const { signEvent } = require('./helpers')
 
 const ACCESS_TOKEN = 'fbo_access'
 const IDLE_WINDOWS = ['12h', '1d', '3d', '1w']
-const SUBMISSION_EVENT_TYPES = ['submission_created', 'submission_abandoned']
+const SUBMISSION_EVENT_TYPES = ['submission_created', 'submission_updated', 'submission_abandoned']
 const REQUEST_EVENT_TYPES = ['request_completed', 'request_expired', 'request_canceled']
 const NOW = '2026-09-22T10:00:00.000Z'
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.0
+
+- Update trigger/public_link_submission: add the Submission updated event. It fires when a respondent edits a submission they already sent through the public link (the form must allow editing after submit), and its test sample carries `type: submission.updated`.
+- Behaviour change: a Zap on Submission created no longer runs when a respondent edits a submission. It receives new submissions only (`submission.completed`). To act on edits, add a Zap on Submission updated.
+
 ## 2.0.1
 
 - Update trigger/public_link_submission: the description says it also fires when a respondent updates a submission; shorter Form and Event help.
