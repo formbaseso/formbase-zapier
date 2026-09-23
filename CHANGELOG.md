@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+- Update trigger/submission: describe the trigger in terms of requests. It fires when a customer completes a request or submits a form, and the Form help text says a request created for the form carries Request ID and Request External ID.
+
 ## 1.1.0
 
 - Update trigger/submission: read the formbase event envelope (`id`, `type`, `createdAt`, `apiVersion`, `test`, `data`) that replaced the flat payload; `fields[]` is gone and every answer arrives once in `data.answers` with its readable text in `data.display`.

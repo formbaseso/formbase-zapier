@@ -274,7 +274,7 @@ const trigger = {
   noun: 'Submission',
   display: {
     label: 'Submission',
-    description: 'Triggers when a form receives a completed or abandoned submission.',
+    description: 'Triggers when a customer completes a request or submits a form, or abandons a submission.',
   },
   operation: {
     type: 'hook',
@@ -286,7 +286,7 @@ const trigger = {
         type: 'string',
         required: true,
         dynamic: 'form_list.id.name',
-        helpText: 'Choose which formbase form should fire this Zap.',
+        helpText: 'Choose which formbase form should fire this Zap. A request created for this form fires it too; the event then carries Request ID and Request External ID.',
       },
       {
         key: 'eventType',

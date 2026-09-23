@@ -1,6 +1,6 @@
 # formbase Zapier Integration
 
-Native Zapier marketplace app for [formbase](https://formbase.so).
+Native Zapier marketplace app for [formbase](https://formbase.so). formbase collects and verifies information from customers for workflows and AI agents: a Zap or an agent creates a request, the customer completes a branded form without an account, and the verified answers come back keyed by field key. This app resumes Zaps when a customer completes a request or submits a form.
 
 This repository is a self-contained CommonJS project with its own `node_modules`
 and `package-lock.json`, as required by the Zapier CLI.
