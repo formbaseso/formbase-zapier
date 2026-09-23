@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0
+
+- Add create/create_request: create a request for a form. The editor loads one input per prefillable field key, one per hidden field marked as context, and a multi-select of the prefilled keys to lock, all from `fields.list`; recipient, language, delivery, reminders, expiry, external id, metadata and test mode are plain inputs. The external id doubles as the idempotency key, so a replayed Zap run reuses the request. The output carries the share link.
+- Add create/cancel_request, create/remind_request and create/get_request: cancel a request with an optional reason, send a reminder, and read a request back with its answers and display keyed by field key.
+- Add search/find_request: find requests by external id within a form or across the connected workspace, optionally including test requests.
+- Add trigger/request_completed, trigger/request_expired and trigger/request_canceled: REST Hooks that fire when a request is completed, expires or is canceled. Each subscribes with its own event type, rejects a delivery of another type, and tests against `requests.sample`. Request Completed also carries the submission, answers and display; the other two carry the request block alone.
+- Update trigger/submission: keep firing for a completed request, and say in the Form help text that a Zap which should react only to requests uses Request Completed. Subscribe, unsubscribe, signature verification, output-field building and the PDF hydrator now live in `utils/` and are shared with the request triggers.
+
 ## 1.1.1
 
 - Update trigger/submission: describe the trigger in terms of requests. It fires when a customer completes a request or submits a form, and the Form help text says a request created for the form carries Request ID and Request External ID.

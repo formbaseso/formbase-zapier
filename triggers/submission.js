@@ -1,8 +1,9 @@
 'use strict'
 
-const { createHmac, randomBytes, timingSafeEqual } = require('crypto')
 const { formbaseRpc } = require('../utils/request')
-const hydrators = require('../hydrators')
+const { subscribe, unsubscribe, requireVerifiedDelivery } = require('../utils/webhooks')
+const { listFields, answerOutputFields } = require('../utils/fields')
+const { EVENT_OUTPUT_FIELDS, SUBMISSION_OUTPUT_FIELDS, addPdfFileHydrator } = require('../utils/events')
 // listForms lives in utils/ rather than on this module so the Zapier schema
 // validator does not flag it as an unknown trigger property.
 
@@ -30,9 +31,6 @@ const WEBHOOK_IDLE_WINDOW_CHOICES = {
   '3d': '3 days',
   '1w': '1 week',
 }
-
-const SIGNATURE_HEADER_PATTERN = /^t=(\d+),sha256=([a-f0-9]{64})$/
-const SIGNATURE_MAX_AGE_SECONDS = 5 * 60
 
 // The event envelope formbase sends (docs/external-api.md § Events): every
 // answer once in `data.answers` (keyed by field key), its readable text under
@@ -73,73 +71,19 @@ const SAMPLE = {
 // The envelope's own fields; the per-form answer fields are added by
 // `outputFields` from fields.list, so a Zap editor sees real question titles.
 const ENVELOPE_OUTPUT_FIELDS = [
-  { key: 'id', label: 'Event ID', type: 'string' },
-  { key: 'type', label: 'Event Type', type: 'string' },
-  { key: 'createdAt', label: 'Event Timestamp', type: 'datetime' },
-  { key: 'test', label: 'Test Event', type: 'boolean' },
-  { key: 'data__form__id', label: 'Form ID', type: 'string' },
-  { key: 'data__form__name', label: 'Form Name', type: 'string' },
-  { key: 'data__submission__id', label: 'Submission ID', type: 'string' },
-  { key: 'data__submission__respondentEmail', label: 'Respondent Email', type: 'string' },
-  { key: 'data__submission__submittedAt', label: 'Submitted At', type: 'datetime' },
-  { key: 'data__submission__pdfUrl', label: 'PDF Link', type: 'string' },
-  { key: 'data__submission__pdfFile', label: 'PDF File', type: 'file' },
-  { key: 'data__submission__language', label: 'Submission Language', type: 'string' },
+  ...EVENT_OUTPUT_FIELDS,
+  ...SUBMISSION_OUTPUT_FIELDS,
   // Present only when the submission answered a request.
   { key: 'data__request__id', label: 'Request ID', type: 'string' },
   { key: 'data__request__externalId', label: 'Request External ID', type: 'string' },
 ]
 
-const ZAPIER_TYPE_BY_FIELD_TYPE = {
-  number: 'number',
-  rating: 'number',
-  scale: 'number',
-  switch: 'boolean',
-  date: 'datetime',
-}
-
-/**
- * One Zapier output field per answer, from the form's published field list:
- * `data__answers__<key>` carries the stored value, `data__display__<key>` the
- * readable text. A repeating group's members are line items under the group
- * key; a matrix answers one field per row.
- *
- * A form that is not published yet has no field list (`published: false`, no
- * items), so the Zap can still be wired up on the envelope alone.
- */
 async function outputFields(z, bundle) {
   const formId = bundle.inputData.formId
   if (!formId) return ENVELOPE_OUTPUT_FIELDS
 
-  const { items } = await formbaseRpc({ z, bundle, method: 'fields.list', params: { formId } })
-  return [...ENVELOPE_OUTPUT_FIELDS, ...items.flatMap(answerOutputFields)]
-}
-
-function answerOutputFields(item) {
-  if (Array.isArray(item.members)) {
-    // A group has no title of its own; its key is what the caller addresses it by.
-    return [
-      ...item.members.map((member) => ({
-        key: `data__answers__${item.key}[]${member.key}`,
-        label: `${item.key} › ${member.title}`,
-      })),
-      { key: `data__display__${item.key}`, label: `${item.key} (display)`, type: 'string' },
-    ]
-  }
-  const display = { key: `data__display__${item.key}`, label: `${item.title} (display)`, type: 'string' }
-  if (Array.isArray(item.rows)) {
-    // A matrix answer is `{ row_key: column_key }`, which Zapier flattens per row.
-    return [
-      ...item.rows.map((row) => ({
-        key: `data__answers__${item.key}__${row.key}`,
-        label: `${item.title} › ${row.label}`,
-        type: 'string',
-      })),
-      display,
-    ]
-  }
-  const type = ZAPIER_TYPE_BY_FIELD_TYPE[item.type]
-  return [{ key: `data__answers__${item.key}`, label: item.title, ...(type ? { type } : {}) }, display]
+  const items = await listFields(z, bundle, formId)
+  return [...ENVELOPE_OUTPUT_FIELDS, ...items.flatMap((item) => answerOutputFields(item, 'data__'))]
 }
 
 /**
@@ -148,34 +92,12 @@ function answerOutputFields(item) {
  * readable VALIDATION_ERROR, so nothing is re-validated here.
  */
 async function performSubscribe(z, bundle) {
-  const { formId, eventType, idleWindow } = bundle.inputData
-  const signingSecret = createWebhookSigningSecret()
-  const data = await formbaseRpc({
-    z,
-    bundle,
-    method: 'webhooks.create',
-    params: {
-      formId,
-      targetUrl: bundle.targetUrl,
-      provider: 'zapier',
-      eventType,
-      ...(eventType === WEBHOOK_EVENTS.abandoned ? { idleWindow } : {}),
-      signingSecret,
-    },
-  })
-  // webhooks.create never returns the secret. Zapier stores this object as
-  // bundle.subscribeData, which is available when webhook requests arrive.
-  return { id: data.subscriptionId, signingSecret }
-}
-
-async function performUnsubscribe(z, bundle) {
-  return formbaseRpc({ z, bundle, method: 'webhooks.delete', params: { subscriptionId: bundle.subscribeData.id } })
+  const { eventType, idleWindow } = bundle.inputData
+  return subscribe(z, bundle, { eventType, ...(eventType === WEBHOOK_EVENTS.abandoned ? { idleWindow } : {}) })
 }
 
 async function perform(z, bundle) {
-  if (!verifyWebhookSignature(bundle)) {
-    throw new Error('Invalid or expired formbase webhook signature.')
-  }
+  requireVerifiedDelivery(bundle)
   return [addPdfFileHydrator(z, bundle.cleanedRequest)]
 }
 
@@ -185,36 +107,6 @@ async function performList(z, bundle) {
   // submissions.sample always describes a completed submission; relabel it so an
   // abandoned-submission Zap tests against the event type it will receive.
   return [addPdfFileHydrator(z, { ...sample, type: PAYLOAD_EVENT_TYPES[eventType] })]
-}
-
-function addPdfFileHydrator(z, payload) {
-  // `pdfUrl: null` is the event saying no PDF is kept for this submission, so
-  // the PDF File output is legitimately absent.
-  const pdfUrl = payload.data?.submission?.pdfUrl
-  if (!pdfUrl) return payload
-
-  // A PDF with nothing to hydrate it from is a payload we no longer understand.
-  // Fail loudly: silently dropping the output is how the PDF File mapping
-  // disappeared from live Zaps the last time the envelope changed.
-  const formId = payload.data.form?.id
-  const submissionId = payload.data.submission.id
-  if (!formId || !submissionId) {
-    throw new Error('formbase event carries a submission PDF but no data.form.id / data.submission.id to hydrate it from.')
-  }
-  return {
-    ...payload,
-    data: {
-      ...payload.data,
-      submission: {
-        ...payload.data.submission,
-        pdfFile: z.dehydrateFile(hydrators.downloadSubmissionPdf, { formId, submissionId }),
-      },
-    },
-  }
-}
-
-function createWebhookSigningSecret() {
-  return `whsec_${randomBytes(32).toString('hex')}`
 }
 
 function getIdleWindowInputFields(_z, bundle) {
@@ -234,41 +126,6 @@ function getIdleWindowInputFields(_z, bundle) {
   ]
 }
 
-function findSignatureHeader(headers) {
-  if (!headers || typeof headers !== 'object') return undefined
-  const entry = Object.entries(headers).find(([name]) => {
-    const normalizedName = name.toLowerCase()
-    return normalizedName === 'http-x-formbase-signature' || normalizedName === 'x-formbase-signature'
-  })
-  return entry?.[1]
-}
-
-function verifyWebhookSignature(bundle) {
-  const secret = bundle.subscribeData?.signingSecret
-  if (typeof secret !== 'string' || secret.length === 0) return false
-
-  const signatureHeader = findSignatureHeader(bundle.rawRequest?.headers)
-  if (typeof signatureHeader !== 'string') return false
-
-  const match = SIGNATURE_HEADER_PATTERN.exec(signatureHeader)
-  if (!match) return false
-
-  const [, timestamp, signatureHex] = match
-  const timestampSeconds = Number(timestamp)
-  if (!Number.isSafeInteger(timestampSeconds)) return false
-
-  const currentTimestampSeconds = Math.floor(Date.now() / 1000)
-  if (Math.abs(currentTimestampSeconds - timestampSeconds) > SIGNATURE_MAX_AGE_SECONDS) return false
-
-  const rawBody = bundle.rawRequest?.content
-  if (typeof rawBody !== 'string' && !Buffer.isBuffer(rawBody)) return false
-
-  const expectedSignature = createHmac('sha256', secret).update(timestamp).update('.').update(rawBody).digest()
-  const receivedSignature = Buffer.from(signatureHex, 'hex')
-
-  return expectedSignature.length === receivedSignature.length && timingSafeEqual(expectedSignature, receivedSignature)
-}
-
 const trigger = {
   key: 'submission',
   noun: 'Submission',
@@ -286,7 +143,8 @@ const trigger = {
         type: 'string',
         required: true,
         dynamic: 'form_list.id.name',
-        helpText: 'Choose which formbase form should fire this Zap. A request created for this form fires it too; the event then carries Request ID and Request External ID.',
+        helpText:
+          'Choose which formbase form should fire this Zap. A request created for this form fires it too; the event then carries Request ID and Request External ID. For a Zap that should only react to requests, use the Request Completed trigger instead.',
       },
       {
         key: 'eventType',
@@ -302,7 +160,7 @@ const trigger = {
       getIdleWindowInputFields,
     ],
     performSubscribe,
-    performUnsubscribe,
+    performUnsubscribe: unsubscribe,
     perform,
     performList,
     sample: SAMPLE,

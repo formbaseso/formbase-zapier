@@ -5,12 +5,16 @@ const { signEvent } = require('./helpers')
 
 const ACCESS_TOKEN = 'fbo_access'
 const IDLE_WINDOWS = ['12h', '1d', '3d', '1w']
+const SUBMISSION_EVENT_TYPES = ['submission_created', 'submission_abandoned']
+const REQUEST_EVENT_TYPES = ['request_completed', 'request_expired', 'request_canceled']
+const NOW = '2026-09-22T10:00:00.000Z'
 
 /**
  * An in-process formbase external API: enough of `POST /api/v1` for a connector
  * to run its whole lifecycle against real HTTP. It validates like the server
- * (bearer token, webhooks.create rules), stores subscriptions, and signs
- * deliveries with the secret each subscription registered.
+ * (bearer token, webhooks.create rules, requests.create idempotency), stores
+ * subscriptions and requests, and signs deliveries with the secret each
+ * subscription registered.
  */
 class FakeFormbase {
   constructor(options = {}) {
@@ -19,8 +23,10 @@ class FakeFormbase {
     this.fields = options.fields || {}
     this.pdfUrl = options.pdfUrl || 'https://api.formbase.test/api/storage/pdf-key'
     this.subscriptions = new Map()
+    this.requests = new Map()
     this.calls = []
     this.nextSubscriptionId = 1
+    this.nextRequestId = 1
   }
 
   async start() {
@@ -75,6 +81,27 @@ class FakeFormbase {
         return { data: this.buildEvent({ formId: params.formId, type: 'submission.completed', test: true }) }
       case 'submissions.pdf':
         return { data: { url: this.pdfUrl, filename: `formbase-submission-${params.submissionId}.pdf`, contentType: 'application/pdf', byteLength: 123 } }
+      case 'requests.create':
+        return this.createRequest(params)
+      case 'requests.get':
+        return this.withRequest(params, (request) => ({ data: { ...request, url: request.url, answers: request.answers, display: request.display, timeline: [] } }))
+      case 'requests.list':
+        return this.listRequests(params)
+      case 'requests.cancel':
+        return this.withRequest(params, (request) => {
+          if (request.status !== 'pending') return conflict('REQUEST_NOT_PENDING')
+          Object.assign(request, { status: 'canceled', canceledAt: Date.parse(NOW), canceledBy: 'api', cancelReason: params.reason ?? null })
+          return { data: summarize(request) }
+        })
+      case 'requests.remind':
+        return this.withRequest(params, (request) => {
+          if (request.status !== 'pending') return conflict('REQUEST_NOT_PENDING')
+          if (!request.recipient.email) return { status: 400, error: { code: 'VALIDATION_ERROR', message: 'RECIPIENT_EMAIL_REQUIRED' } }
+          request.remindersSent += 1
+          return { data: summarize(request) }
+        })
+      case 'requests.sample':
+        return this.sampleRequestEvent(params)
       default:
         return { status: 404, error: { code: 'METHOD_NOT_FOUND', message: `Unknown method: ${method}` } }
     }
@@ -102,9 +129,9 @@ class FakeFormbase {
     if (!/^https:\/\//.test(params.targetUrl || '')) return invalid('targetUrl must be an https URL')
     if (!['zapier', 'make', 'n8n'].includes(params.provider)) return invalid('provider must be one of zapier, make, n8n')
     const eventType = params.eventType || 'submission_created'
-    if (eventType !== 'submission_created' && eventType !== 'submission_abandoned') return invalid('eventType must be "submission_created" or "submission_abandoned"')
+    if (![...SUBMISSION_EVENT_TYPES, ...REQUEST_EVENT_TYPES].includes(eventType)) return invalid(`eventType must be one of ${[...SUBMISSION_EVENT_TYPES, ...REQUEST_EVENT_TYPES].join(', ')}`)
     if (eventType === 'submission_abandoned' && !IDLE_WINDOWS.includes(params.idleWindow)) return invalid('idleWindow is required when eventType is "submission_abandoned"')
-    if (eventType === 'submission_created' && params.idleWindow !== undefined) return invalid('idleWindow is only valid when eventType is "submission_abandoned"')
+    if (eventType !== 'submission_abandoned' && params.idleWindow !== undefined) return invalid('idleWindow is only valid when eventType is "submission_abandoned"')
     if (params.signingSecret !== undefined && (params.signingSecret.length < 32 || params.signingSecret.length > 255)) {
       return invalid('signingSecret must be between 32 and 255 characters')
     }
@@ -123,13 +150,89 @@ class FakeFormbase {
     return { data: subscription }
   }
 
+  /** `requests.create` with the server's idempotency rule: same key + same body → the original, `deduplicated: true`. */
+  createRequest(params) {
+    const form = this.forms.find((candidate) => candidate.id === params.formId)
+    if (!form) return notFound('Form not found')
+    if (!form.published) return { status: 400, error: { code: 'VALIDATION_ERROR', message: 'FORM_NOT_PUBLISHED' } }
+    const body = JSON.stringify({ ...params, idempotencyKey: undefined })
+    if (params.idempotencyKey) {
+      const existing = [...this.requests.values()].find((request) => request.idempotencyKey === params.idempotencyKey)
+      if (existing && existing.body !== body) return conflict('IDEMPOTENCY_CONFLICT')
+      if (existing) return { data: { ...createResult(existing), deduplicated: true } }
+    }
+    const id = `req_${this.nextRequestId++}`
+    const request = {
+      id,
+      workspaceId: this.workspace.id,
+      formId: form.id,
+      formSnapshotId: `snap_${form.id}`,
+      submissionId: null,
+      status: 'pending',
+      outcome: null,
+      createdVia: 'api',
+      isTest: params.test === true,
+      recipient: { email: params.recipient?.email ?? null, name: params.recipient?.name ?? null },
+      language: params.language || 'en',
+      externalId: params.externalId ?? null,
+      metadata: params.metadata ?? null,
+      context: params.context || {},
+      prefill: params.prefill || {},
+      readonlyKeys: params.readonly || [],
+      documents: [],
+      delivery: params.delivery || 'none',
+      deliveryStatus: params.delivery === 'email' && params.test !== true ? 'queued' : 'not_requested',
+      hasCallback: false,
+      callbackFailedAt: null,
+      expiresAt: params.expiresAt || Date.parse(NOW) + 30 * 24 * 3600 * 1000,
+      createdAt: Date.parse(NOW),
+      updatedAt: Date.parse(NOW),
+      completedAt: null,
+      expiredAt: null,
+      canceledAt: null,
+      canceledBy: null,
+      cancelReason: null,
+      remindersSent: 0,
+      url: `https://forms.formbase.test/r/rq_${id}`,
+      answers: null,
+      display: null,
+      idempotencyKey: params.idempotencyKey,
+      body,
+    }
+    this.requests.set(id, request)
+    return { data: { ...createResult(request), deduplicated: false } }
+  }
+
+  listRequests(params) {
+    if (!params.formId && !params.workspaceId) return { status: 400, error: { code: 'VALIDATION_ERROR', message: 'SCOPE_REQUIRED' } }
+    const items = [...this.requests.values()]
+      .filter((request) => (params.formId ? request.formId === params.formId : request.workspaceId === params.workspaceId))
+      .filter((request) => params.externalId === undefined || request.externalId === params.externalId)
+      .filter((request) => params.includeTest === true || !request.isTest)
+      .reverse()
+      .map(summarize)
+    return { data: { items, nextCursor: null, hasMore: false } }
+  }
+
+  withRequest(params, handler) {
+    const request = this.requests.get(params.requestId)
+    if (!request) return notFound('Request not found')
+    return handler(request)
+  }
+
+  sampleRequestEvent(params) {
+    if (!REQUEST_EVENT_TYPES.includes(params.eventType)) return { status: 400, error: { code: 'VALIDATION_ERROR', message: 'eventType must be a request event' } }
+    const status = params.eventType.replace('request_', '')
+    return { data: this.buildRequestEvent({ formId: params.formId, status, test: true }) }
+  }
+
   /** The event envelope for one form, with the sample answers the field list implies. */
   buildEvent({ formId, type = 'submission.completed', test = false, answers, display, pdfUrl = null, request }) {
     const form = this.forms.find((candidate) => candidate.id === formId)
     return {
       id: test ? 'evt_example000000000000' : `evt_${Math.random().toString(16).slice(2, 14)}`,
       type,
-      createdAt: '2026-09-22T10:00:00.000Z',
+      createdAt: NOW,
       apiVersion: '2026-09-22',
       test,
       data: {
@@ -137,7 +240,7 @@ class FakeFormbase {
         submission: {
           id: test ? 'sub_example000000000000' : 'sub_1',
           respondentEmail: 'respondent@example.com',
-          submittedAt: '2026-09-22T10:00:00.000Z',
+          submittedAt: NOW,
           pdfUrl,
           language: 'en',
         },
@@ -146,6 +249,31 @@ class FakeFormbase {
         ...(request ? { request } : {}),
       },
     }
+  }
+
+  /**
+   * A request event: `data.request` always, plus the submission block, answers
+   * and display on `completed` only (docs/external-api.md § Callbacks).
+   */
+  buildRequestEvent({ formId, status, test = false, request = {}, answers, display, pdfUrl = null }) {
+    const requestBlock = {
+      id: test ? 'req_example000000000000' : 'req_1',
+      externalId: 'run-42',
+      status,
+      language: 'en',
+      recipient: { email: 'ada@example.com', name: 'Ada' },
+      metadata: { runId: 'run-42' },
+      context: {},
+      createdAt: NOW,
+      ...(status === 'completed' ? { outcome: 'approve', completedAt: NOW } : {}),
+      ...(status === 'expired' ? { expiredAt: NOW } : {}),
+      ...(status === 'canceled' ? { canceledAt: NOW, cancelReason: 'Order withdrawn' } : {}),
+      ...request,
+    }
+    const envelope = { id: test ? 'evt_example000000000000' : `evt_${Math.random().toString(16).slice(2, 14)}`, type: `request.${status}`, createdAt: NOW, apiVersion: '2026-09-22', test }
+    if (status !== 'completed') return { ...envelope, data: { request: requestBlock } }
+    const submissionEvent = this.buildEvent({ formId, test, answers, display, pdfUrl })
+    return { ...envelope, data: { request: requestBlock, ...submissionEvent.data } }
   }
 
   /** What formbase POSTs to a subscription's target URL: the signed raw body and its headers. */
@@ -166,8 +294,22 @@ class FakeFormbase {
   }
 }
 
+function createResult(request) {
+  const { id, status, url, deliveryStatus, expiresAt, createdAt, externalId } = request
+  return { id, status, url, deliveryStatus, expiresAt, createdAt, externalId }
+}
+
+function summarize(request) {
+  const { url, answers, display, idempotencyKey, body, ...summary } = request
+  return summary
+}
+
 function notFound(message) {
   return { status: 404, error: { code: 'NOT_FOUND', message } }
+}
+
+function conflict(reason) {
+  return { status: 409, error: { code: 'CONFLICT', message: reason, details: { reason } } }
 }
 
 module.exports = { FakeFormbase, ACCESS_TOKEN }

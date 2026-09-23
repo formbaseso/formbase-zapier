@@ -1,6 +1,6 @@
 # formbase Zapier Integration
 
-Native Zapier marketplace app for [formbase](https://formbase.so). formbase collects and verifies information from customers for workflows and AI agents: a Zap or an agent creates a request, the customer completes a branded form without an account, and the verified answers come back keyed by field key. This app resumes Zaps when a customer completes a request or submits a form.
+Native Zapier marketplace app for [formbase](https://formbase.so). formbase collects and verifies information from customers for workflows and AI agents: a Zap or an agent creates a request, the customer completes a branded form without an account, and the verified answers come back keyed by field key. This app creates, finds, reminds and cancels requests from a Zap, and resumes Zaps when a request is completed, expires or is canceled, or when a form is submitted.
 
 This repository is a self-contained CommonJS project with its own `node_modules`
 and `package-lock.json`, as required by the Zapier CLI.
@@ -46,8 +46,49 @@ and `package-lock.json`, as required by the Zapier CLI.
   `subscribeData`, and verifies `X-formbase-Signature` against the exact raw
   request body with HMAC-SHA256. Requests with a missing/invalid signature or a
   timestamp more than five minutes old are rejected.
+- **Request triggers** (`triggers/request_completed.js`,
+  `triggers/request_expired.js`, `triggers/request_canceled.js`, built by one
+  factory in `utils/request_trigger.js`) — REST Hooks keyed
+  `request_completed`, `request_expired` and `request_canceled`. Each
+  subscribes with its own `eventType` and shares subscribe, unsubscribe and
+  signature verification with the Submission trigger (`utils/webhooks.js`). A
+  delivery whose `type` is not the one the Zap subscribed to is rejected, so a
+  misrouted event never resumes the wrong Zap. Samples come from
+  `requests.sample { formId, eventType }`.
+  - Every event carries `data.request`: id, external id, status, outcome,
+    recipient, language, metadata, context and the timestamps. **Request
+    Completed** also carries the submission block, `data.answers` and
+    `data.display`, and lists one output per field key from `fields.list`
+    like the Submission trigger does. Expired and canceled list the request
+    block alone.
+  - A completed request fires both **Request Completed** and **Submission**;
+    a Zap that should react only to requests uses Request Completed, and the
+    Submission trigger's help text says so.
+- **Actions** (`creates/`):
+  - **Create Request** (`create_request`, `requests.create`) — pick a form,
+    and the editor loads one input per prefillable field key (`prefill`),
+    one per hidden field marked `context`, and a multi-select of the
+    prefilled keys to lock (`readonly`), all built from `fields.list`. A
+    repeating group becomes line items and a matrix one input per row. Plain
+    inputs cover recipient email and name, language, delivery (`none` or
+    `email`), reminders, expiry, external id, metadata and test mode. Zapier
+    input keys cannot hold `.` or `-`, so field keys are encoded to `_` in
+    the editor and the payload is rebuilt from the live field list on every
+    run; two keys that encode the same fail loudly. The external id, when
+    set, is also sent as `idempotencyKey`, so a replayed Zap run reuses the
+    request instead of creating a second one. The output is the created
+    summary with the share link under `url`.
+  - **Cancel Request** (`cancel_request`, `requests.cancel`) — request id and
+    an optional reason.
+  - **Remind Request** (`remind_request`, `requests.remind`) — request id.
+  - **Get Request** (`get_request`, `requests.get`) — the request with its
+    share link, answers and display under `answers__<key>` and
+    `display__<key>`; an optional form picker labels those outputs.
+- **Search `find_request`** (`searches/find_request.js`, `requests.list`) —
+  by external id, within a form or across the connected workspace, optionally
+  including test requests. Returns the matching requests, or nothing.
 - **Form picker** (`triggers/form_list.js`, hidden trigger keyed `form_list`) —
-  feeds the `submission` `formId` dropdown via `form_list.id.name`. An OAuth
+  feeds every `formId` dropdown via `form_list.id.name`. An OAuth
   token is scoped to one workspace, so the picker lists that workspace's forms,
   following `forms.list` cursors.
 - **JSON-RPC client** (`utils/request.js`) — POSTs to `${BASE_URL}/api/v1` with
@@ -152,11 +193,26 @@ formbase-zapier/
 ├── hydrators.js             # lazy PDF File download via submissions.pdf
 ├── index.js                 # app export
 ├── triggers/
-│   ├── submission.js        # REST Hooks trigger: subscribe, verify, output fields
+│   ├── submission.js        # REST Hooks trigger: submission completed / abandoned
+│   ├── request_completed.js # REST Hooks trigger: a request is completed
+│   ├── request_expired.js   # REST Hooks trigger: a request expires
+│   ├── request_canceled.js  # REST Hooks trigger: a request is canceled
 │   └── form_list.js         # hidden trigger (key: form_list) for the form picker
+├── creates/
+│   ├── create_request.js    # requests.create with per-field prefill/context inputs
+│   ├── cancel_request.js    # requests.cancel
+│   ├── remind_request.js    # requests.remind
+│   └── get_request.js       # requests.get
+├── searches/
+│   └── find_request.js      # requests.list by external id
 ├── utils/
 │   ├── request.js           # JSON-RPC transport + error mapping
-│   └── list_forms.js        # form-picker dropdown source
+│   ├── list_forms.js        # form-picker dropdown source + workspace lookup
+│   ├── webhooks.js          # subscribe, unsubscribe, signature verification
+│   ├── fields.js            # fields.list and per-key output fields
+│   ├── events.js            # envelope output fields, PDF hydrator
+│   ├── request_trigger.js   # factory for the three request triggers
+│   └── request_summary.js   # request output fields, sample, Request ID input
 └── test/
     ├── helpers.js           # z stand-in, signed-delivery bundle
     ├── fake-formbase.js     # in-process formbase API for the lifecycle test
