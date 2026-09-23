@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.1
+
+- Update trigger/public_link_submission: the description says it also fires when a respondent updates a submission; shorter Form and Event help.
+- Update trigger/request_completed, trigger/request_expired, trigger/request_canceled: shorter descriptions and help.
+
 ## 2.0.0
 
 - Remove trigger/submission and add trigger/public_link_submission: the same trigger under the key that matches its label. Zaps built on `submission` do not migrate; rebuild them on Public Link Submission. Zapier requires a major version for a removed trigger.

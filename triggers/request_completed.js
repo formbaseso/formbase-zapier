@@ -6,7 +6,7 @@ module.exports = createRequestTrigger({
   outcome: 'completed',
   label: 'Request Completed',
   description:
-    'Triggers when a recipient completes a request: the answers arrive keyed by field key, with the outcome. The only event a completed request fires.',
+    'Triggers when a recipient completes a request. The answers arrive keyed by field key, with the outcome.',
   helpText:
-    'Choose the form whose requests should fire this Zap. A completed request fires this trigger alone, never the Public Link Submission trigger, so a Zap on each receives one event per completion.',
+    'The form whose completed requests fire this Zap. A completed request fires this trigger only, never Public Link Submission.',
 })

@@ -118,7 +118,7 @@ function getIdleWindowInputFields(_z, bundle) {
       choices: WEBHOOK_IDLE_WINDOW_CHOICES,
       default: '12h',
       helpText:
-        'Triggers after the response has no saved changes for this long. The hourly sweep can add up to one extra hour.',
+        'Fires after the submission has no saved changes for this long. The hourly sweep can add up to one hour.',
     },
   ]
 }
@@ -129,7 +129,7 @@ const trigger = {
   display: {
     label: 'Public Link Submission',
     description:
-      'Triggers when someone submits the form through its public link, or abandons a submission there. A completed request fires Request Completed instead, never this trigger.',
+      'Triggers when a respondent submits the form through its public link, updates that submission later, or abandons it. A completed request fires Request Completed instead.',
   },
   operation: {
     type: 'hook',
@@ -142,7 +142,7 @@ const trigger = {
         required: true,
         dynamic: 'form_list.id.name',
         helpText:
-          'Choose which formbase form should fire this Zap. It fires for public-link submissions only; a completed request fires the Request Completed trigger instead, never this one.',
+          'The form to watch. Public-link submissions only; a completed request fires Request Completed instead.',
       },
       {
         key: 'eventType',
@@ -153,7 +153,7 @@ const trigger = {
         default: WEBHOOK_EVENTS.created,
         altersDynamicFields: true,
         helpText:
-          'Submission created also fires when a completed submission is edited later (event type submission.updated). Abandoned submissions require partial-submission tracking on the formbase workspace.',
+          'Submission created fires for a new submission and again when the respondent updates it later (event type submission.updated). Submission abandoned needs partial-submission tracking on the workspace.',
       },
       getIdleWindowInputFields,
     ],
