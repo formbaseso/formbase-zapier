@@ -28,7 +28,7 @@ and `package-lock.json`, as required by the Zapier CLI.
   - Every event is the formbase envelope `{ id, type, createdAt, apiVersion,
     test, data }`: `data.answers` holds each answer once under its field key,
     `data.display` the readable text under the same key and `data.submission`
-    the email, timestamp, PDF link and language. It fires for share-link
+    the email, timestamp, PDF link and language. It fires for public-link
     submissions only: a completed request never reaches it (one channel, one
     event), so no `data.request` block appears here.
   - Output fields are built per form from `fields.list`
@@ -52,7 +52,7 @@ and `package-lock.json`, as required by the Zapier CLI.
   factory in `utils/request_trigger.js`) — REST Hooks keyed
   `request_completed`, `request_expired` and `request_canceled`. Each
   subscribes with its own `eventType` and shares subscribe, unsubscribe and
-  signature verification with the Submission trigger (`utils/webhooks.js`). A
+  signature verification with the Public Link Submission trigger (`utils/webhooks.js`). A
   delivery whose `type` is not the one the Zap subscribed to is rejected, so a
   misrouted event never resumes the wrong Zap. Samples come from
   `requests.sample { formId, eventType }`.
@@ -60,10 +60,10 @@ and `package-lock.json`, as required by the Zapier CLI.
     recipient, language, metadata, context and the timestamps. **Request
     Completed** also carries the submission block, `data.answers` and
     `data.display`, and lists one output per field key from `fields.list`
-    like the Submission trigger does. Expired and canceled list the request
+    like the Public Link Submission trigger does. Expired and canceled list the request
     block alone.
   - A completed request fires **Request Completed** alone, never
-    **Submission**. A Zap that wants every answer, whichever channel produced
+    **Public Link Submission**. A Zap that wants every answer, whichever channel produced
     it, is one Zap on each trigger.
 - **Actions** (`creates/`):
   - **Create Request** (`create_request`, `requests.create`) — pick a form,

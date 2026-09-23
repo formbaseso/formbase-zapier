@@ -127,8 +127,9 @@ const trigger = {
   key: 'submission',
   noun: 'Submission',
   display: {
-    label: 'Submission',
-    description: 'Triggers when someone submits the form through its share link, or abandons a submission.',
+    label: 'Public Link Submission',
+    description:
+      'Triggers when someone submits the form through its public link, or abandons a submission there. A completed request fires Request Completed instead, never this trigger.',
   },
   operation: {
     type: 'hook',
@@ -141,7 +142,7 @@ const trigger = {
         required: true,
         dynamic: 'form_list.id.name',
         helpText:
-          'Choose which formbase form should fire this Zap. It fires for share-link submissions only; a completed request fires the Request Completed trigger instead, never this one.',
+          'Choose which formbase form should fire this Zap. It fires for public-link submissions only; a completed request fires the Request Completed trigger instead, never this one.',
       },
       {
         key: 'eventType',

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1
+
+- Update trigger/submission: renamed to Public Link Submission, so the trigger list says which channel it covers. The key `submission` is unchanged; existing Zaps keep working.
+- Update trigger/request_completed: the description says it is the only event a completed request fires.
+
 ## 1.3.0
 
 - Update trigger/submission: fire for share-link submissions only. A completed request no longer fires the Submission trigger (formbase ADR 0030, one channel, one event), so a Zap on Submission and a Zap on Request Completed run one each per completion and the Filter on Request ID is no longer needed. The Request ID and Request External ID outputs are gone from the Submission trigger, since no event it receives can carry them; a Zap that wants every answer, whichever channel produced it, is one Zap on each trigger.
