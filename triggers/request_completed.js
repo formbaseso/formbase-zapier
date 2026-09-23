@@ -8,5 +8,5 @@ module.exports = createRequestTrigger({
   description:
     'Triggers when a recipient completes a request. The answers arrive keyed by field key, with the outcome.',
   helpText:
-    'The form whose completed requests fire this Zap. A completed request fires this trigger only, never Public Link Submission.',
+    'The form whose completed requests fire this Zap. A completed request fires this trigger only, never Public Link Submission Created.',
 })

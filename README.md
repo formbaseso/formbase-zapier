@@ -16,19 +16,26 @@ and `package-lock.json`, as required by the Zapier CLI.
   - `test` calls `me.get` (`{ id, email, name }`) so the label renders `{{email}}`.
   - Env vars: `CLIENT_ID`, `CLIENT_SECRET` (see setup below), optional `BASE_URL`
     (default `https://api.formbase.so`).
-- **Trigger `public_link_submission`** (REST Hooks) — subscribes via `webhooks.create`,
-  unsubscribes via `webhooks.delete`, and offers three events, each delivering
-  one event type:
-  - `submission_created` (Submission created) receives `submission.completed`
-    for a new submission.
-  - `submission_updated` (Submission updated) receives `submission.updated`
-    when the respondent edits a submission they already sent; the form must
-    allow editing after submit.
-  - `submission_abandoned` (Submission abandoned, requires partial-submission
-    tracking) receives `submission.abandoned`. Abandoned Zaps choose a
-    required idle window: 12 hours, 1 day, 3 days, or 1 week; formbase sweeps
-    idle drafts hourly, so delivery can occur up to one hour after the
-    threshold.
+- **Public-link submission triggers** (`triggers/public_link_submission.js`,
+  `triggers/public_link_submission_updated.js`,
+  `triggers/public_link_submission_abandoned.js`, built by one factory in
+  `utils/public_link_submission_trigger.js`) — REST Hooks that subscribe via
+  `webhooks.create`, unsubscribe via `webhooks.delete`, and each deliver one
+  event type:
+  - **Public Link Submission Created** (`public_link_submission`) subscribes
+    to `submission_created` and receives `submission.completed` for a new
+    submission.
+  - **Public Link Submission Updated** (`public_link_submission_updated`)
+    subscribes to `submission_updated` and receives `submission.updated` when
+    the respondent edits a submission they already sent; the form must allow
+    editing after submit.
+  - **Public Link Submission Abandoned** (`public_link_submission_abandoned`,
+    requires partial-submission tracking) subscribes to `submission_abandoned`
+    and receives `submission.abandoned`. It has a required idle window: 12
+    hours, 1 day, 3 days, or 1 week; formbase sweeps idle drafts hourly, so
+    delivery can occur up to one hour after the threshold.
+  - A delivery whose `type` is not the one the trigger subscribed to is
+    rejected, so a misrouted event never runs the wrong Zap.
   - Every event is the formbase envelope `{ id, type, createdAt, apiVersion,
     test, data }`: `data.answers` holds each answer once under its field key,
     `data.display` the readable text under the same key and `data.submission`
@@ -41,7 +48,7 @@ and `package-lock.json`, as required by the Zapier CLI.
     group key; a matrix gets one field per row. A form that is not published
     yet lists the envelope alone, so a Zap can be wired up before publishing.
   - Samples come from `submissions.sample`, relabelled `submission.updated` or
-    `submission.abandoned` for an updated or abandoned trigger so filters and
+    `submission.abandoned` for the Updated or Abandoned trigger so filters and
     mapped fields reflect its live payload.
   - The PDF File output hydrates from `submissions.pdf` when the event carries
     `data.submission.pdfUrl`; an event that carries a PDF without the ids to
@@ -56,7 +63,7 @@ and `package-lock.json`, as required by the Zapier CLI.
   factory in `utils/request_trigger.js`) — REST Hooks keyed
   `request_completed`, `request_expired` and `request_canceled`. Each
   subscribes with its own `eventType` and shares subscribe, unsubscribe and
-  signature verification with the Public Link Submission trigger (`utils/webhooks.js`). A
+  signature verification with the public-link submission triggers (`utils/webhooks.js`). A
   delivery whose `type` is not the one the Zap subscribed to is rejected, so a
   misrouted event never resumes the wrong Zap. Samples come from
   `requests.sample { formId, eventType }`.
@@ -64,10 +71,10 @@ and `package-lock.json`, as required by the Zapier CLI.
     recipient, language, metadata, context and the timestamps. **Request
     Completed** also carries the submission block, `data.answers` and
     `data.display`, and lists one output per field key from `fields.list`
-    like the Public Link Submission trigger does. Expired and canceled list the request
+    like Public Link Submission Created does. Expired and canceled list the request
     block alone.
   - A completed request fires **Request Completed** alone, never
-    **Public Link Submission**. A Zap that wants every answer, whichever channel produced
+    **Public Link Submission Created**. A Zap that wants every answer, whichever channel produced
     it, is one Zap on each trigger.
 - **Actions** (`creates/`):
   - **Create Request** (`create_request`, `requests.create`) — pick a form,

@@ -4,6 +4,8 @@ process.env.BASE_URL = 'https://fake.formbase.test'
 const nock = require('nock')
 const hydrators = require('../hydrators')
 const trigger = require('../triggers/public_link_submission')
+const updatedTrigger = require('../triggers/public_link_submission_updated')
+const abandonedTrigger = require('../triggers/public_link_submission_abandoned')
 const { listForms } = require('../utils/list_forms')
 const { makeZ, makeSignedWebhookBundle } = require('./helpers')
 
@@ -17,12 +19,19 @@ function rpc(method, predicate = () => true) {
   })
 }
 
-describe('submission trigger definition', () => {
-  test('is a REST hook trigger keyed `public_link_submission`, the key that matches its label', () => {
-    expect(trigger.key).toBe('public_link_submission')
+const TRIGGERS = [
+  { trigger, key: 'public_link_submission', label: 'Public Link Submission Created', eventType: 'submission_created', payloadType: 'submission.completed' },
+  { trigger: updatedTrigger, key: 'public_link_submission_updated', label: 'Public Link Submission Updated', eventType: 'submission_updated', payloadType: 'submission.updated' },
+  { trigger: abandonedTrigger, key: 'public_link_submission_abandoned', label: 'Public Link Submission Abandoned', eventType: 'submission_abandoned', payloadType: 'submission.abandoned' },
+]
+
+describe('public-link submission trigger definitions', () => {
+  test.each(TRIGGERS)('$key is a REST hook trigger labelled $label whose sample is a $payloadType', ({ trigger, key, label, payloadType }) => {
+    expect(trigger.key).toBe(key)
+    expect(trigger.display.label).toBe(label)
     expect(trigger.operation.type).toBe('hook')
     expect(trigger.operation.cleanInputData).toBe(false)
-    expect(trigger.operation.sample.type).toBe('submission.completed')
+    expect(trigger.operation.sample.type).toBe(payloadType)
     expect(typeof trigger.operation.outputFields[0]).toBe('function')
   })
 
@@ -36,37 +45,18 @@ describe('submission trigger definition', () => {
     expect(Object.keys(sample.data.display)).toEqual(Object.keys(sample.data.answers))
   })
 
-  test('the form picker is a dynamic dropdown fed by the hidden form_list trigger', () => {
+  test.each(TRIGGERS)('$key picks its form from the hidden form_list trigger and has no Event field', ({ trigger }) => {
     const formField = trigger.operation.inputFields.find((field) => field.key === 'formId')
     expect(formField).toMatchObject({ required: true, dynamic: 'form_list.id.name' })
+    expect(trigger.operation.inputFields.map((field) => field.key)).not.toContain('eventType')
   })
 
-  test('offers created, updated and abandoned submission events, created by default', () => {
-    const eventField = trigger.operation.inputFields.find((field) => field.key === 'eventType')
-    expect(eventField).toMatchObject({
-      required: true,
-      default: 'submission_created',
-      choices: {
-        submission_created: 'Submission created',
-        submission_updated: 'Submission updated',
-        submission_abandoned: 'Submission abandoned',
-      },
-      altersDynamicFields: true,
-    })
-    expect(Object.keys(eventField.choices)).toEqual(['submission_created', 'submission_updated', 'submission_abandoned'])
-    expect(eventField.helpText).toMatch(/Submission updated fires when the respondent edits/)
-    expect(eventField.helpText).not.toMatch(/again/)
-  })
+  test('only the abandoned trigger asks for an idle window, as a static required field', () => {
+    expect(trigger.operation.inputFields.map((field) => field.key)).toEqual(['formId'])
+    expect(updatedTrigger.operation.inputFields.map((field) => field.key)).toEqual(['formId'])
 
-  test('only asks for an idle window when abandoned submissions are selected', () => {
-    const dynamicField = trigger.operation.inputFields.find((field) => typeof field === 'function')
-
-    expect(dynamicField(makeZ(), { inputData: { eventType: 'submission_created' } })).toEqual([])
-    expect(dynamicField(makeZ(), { inputData: { eventType: 'submission_updated' } })).toEqual([])
-
-    const [idleWindowField] = dynamicField(makeZ(), { inputData: { eventType: 'submission_abandoned' } })
+    const idleWindowField = abandonedTrigger.operation.inputFields.find((field) => field.key === 'idleWindow')
     expect(idleWindowField).toMatchObject({
-      key: 'idleWindow',
       required: true,
       default: '12h',
       choices: { '12h': '12 hours', '1d': '1 day', '3d': '3 days', '1w': '1 week' },
@@ -153,7 +143,7 @@ describe('outputFields', () => {
 describe('subscribe / unsubscribe', () => {
   afterEach(() => nock.cleanAll())
 
-  test('performSubscribe registers submission_created with a signing secret and no idle window', async () => {
+  test('Public Link Submission Created registers submission_created with a signing secret and no idle window', async () => {
     let sent
     rpc('webhooks.create', (params) => {
       sent = params
@@ -163,7 +153,7 @@ describe('subscribe / unsubscribe', () => {
     const result = await trigger.operation.performSubscribe(makeZ(), {
       authData,
       targetUrl: 'https://hooks.zapier.com/abc',
-      inputData: { formId: 'form_1', eventType: 'submission_created', idleWindow: '3d' },
+      inputData: { formId: 'form_1', idleWindow: '3d' },
     })
 
     expect(sent).toEqual({
@@ -176,17 +166,17 @@ describe('subscribe / unsubscribe', () => {
     expect(result).toEqual({ id: 'int_1', signingSecret: sent.signingSecret })
   })
 
-  test('performSubscribe registers submission_updated without an idle window', async () => {
+  test('Public Link Submission Updated registers submission_updated without an idle window', async () => {
     let sent
     rpc('webhooks.create', (params) => {
       sent = params
       return true
     }).reply(200, { ok: true, data: { subscriptionId: 'int_3', eventType: 'submission_updated' } })
 
-    await trigger.operation.performSubscribe(makeZ(), {
+    await updatedTrigger.operation.performSubscribe(makeZ(), {
       authData,
       targetUrl: 'https://hooks.zapier.com/updated',
-      inputData: { formId: 'form_1', eventType: 'submission_updated', idleWindow: '3d' },
+      inputData: { formId: 'form_1', idleWindow: '3d' },
     })
 
     expect(sent).toEqual({
@@ -198,17 +188,17 @@ describe('subscribe / unsubscribe', () => {
     })
   })
 
-  test('performSubscribe registers submission_abandoned with its idle window', async () => {
+  test('Public Link Submission Abandoned registers submission_abandoned with its idle window', async () => {
     let sent
     rpc('webhooks.create', (params) => {
       sent = params
       return true
     }).reply(200, { ok: true, data: { subscriptionId: 'int_2', eventType: 'submission_abandoned', idleWindow: '3d' } })
 
-    await trigger.operation.performSubscribe(makeZ(), {
+    await abandonedTrigger.operation.performSubscribe(makeZ(), {
       authData,
       targetUrl: 'https://hooks.zapier.com/abandoned',
-      inputData: { formId: 'form_1', eventType: 'submission_abandoned', idleWindow: '3d' },
+      inputData: { formId: 'form_1', idleWindow: '3d' },
     })
 
     expect(sent).toMatchObject({ eventType: 'submission_abandoned', idleWindow: '3d' })
@@ -218,10 +208,10 @@ describe('subscribe / unsubscribe', () => {
     rpc('webhooks.create').reply(400, { ok: false, error: { code: 'VALIDATION_ERROR', message: 'idleWindow is required when eventType is "submission_abandoned"' } })
 
     await expect(
-      trigger.operation.performSubscribe(makeZ(), {
+      abandonedTrigger.operation.performSubscribe(makeZ(), {
         authData,
         targetUrl: 'https://hooks.zapier.com/x',
-        inputData: { formId: 'form_1', eventType: 'submission_abandoned' },
+        inputData: { formId: 'form_1' },
       })
     ).rejects.toThrow(/idleWindow is required/)
   })
@@ -246,11 +236,16 @@ describe('perform (a delivery)', () => {
     await expect(trigger.operation.perform(makeZ(), makeSignedWebhookBundle(event))).resolves.toEqual([event])
   })
 
-  test('keeps submission.abandoned and submission.updated as delivered', async () => {
-    for (const type of ['submission.abandoned', 'submission.updated']) {
-      const event = { ...completed(), type }
-      await expect(trigger.operation.perform(makeZ(), makeSignedWebhookBundle(event))).resolves.toEqual([event])
-    }
+  test.each(TRIGGERS)('$key keeps a $payloadType delivery as delivered', async ({ trigger, payloadType }) => {
+    const event = { ...completed(), type: payloadType }
+    await expect(trigger.operation.perform(makeZ(), makeSignedWebhookBundle(event))).resolves.toEqual([event])
+  })
+
+  test('rejects a delivery of another event type instead of running the wrong Zap', async () => {
+    const event = { ...completed(), type: 'submission.updated' }
+    await expect(trigger.operation.perform(makeZ(), makeSignedWebhookBundle(event))).rejects.toThrow(
+      'formbase delivered a submission.updated event to a submission.completed subscription.'
+    )
   })
 
   test('rejects unsigned, tampered, and expired webhook requests', async () => {
@@ -286,16 +281,12 @@ describe('perform (a delivery)', () => {
 describe('performList (the sample Zapier tests with)', () => {
   afterEach(() => nock.cleanAll())
 
-  test.each([
-    ['submission_created', 'submission.completed'],
-    ['submission_updated', 'submission.updated'],
-    ['submission_abandoned', 'submission.abandoned'],
-  ])('relabels submissions.sample to the event type a %s subscription receives', async (eventType, expectedType) => {
+  test.each(TRIGGERS)('$key relabels submissions.sample to the $payloadType it receives', async ({ trigger, payloadType }) => {
     const sample = { id: 'e_sample', type: 'submission.completed', test: true, data: { form: { id: 'form_1' }, submission: { id: 's1', pdfUrl: null }, answers: {}, display: {} } }
     rpc('submissions.sample', (params) => params.formId === 'form_1').reply(200, { ok: true, data: sample })
 
-    const result = await trigger.operation.performList(makeZ(), { authData, inputData: { formId: 'form_1', eventType } })
-    expect(result).toEqual([{ ...sample, type: expectedType }])
+    const result = await trigger.operation.performList(makeZ(), { authData, inputData: { formId: 'form_1' } })
+    expect(result).toEqual([{ ...sample, type: payloadType }])
   })
 })
 

@@ -61,7 +61,7 @@ const SAMPLES = {
 
 /**
  * A REST hook trigger for one request outcome. All three share the subscribe,
- * unsubscribe and signature code of the Submission trigger; only the event
+ * unsubscribe and signature code of the public-link submission triggers; only the event
  * type, the sample and (for a completed request) the answer outputs differ.
  */
 function createRequestTrigger({ outcome, label, description, helpText }) {

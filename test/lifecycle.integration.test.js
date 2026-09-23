@@ -15,6 +15,8 @@ const FIELDS = [
 
 let formbase
 let trigger
+let updatedTrigger
+let abandonedTrigger
 let hydrators
 let formList
 let requestCompleted
@@ -39,6 +41,8 @@ beforeAll(async () => {
   process.env.BASE_URL = formbase.baseUrl
   jest.isolateModules(() => {
     trigger = require('../triggers/public_link_submission')
+    updatedTrigger = require('../triggers/public_link_submission_updated')
+    abandonedTrigger = require('../triggers/public_link_submission_abandoned')
     hydrators = require('../hydrators')
     formList = require('../triggers/form_list')
     requestCompleted = require('../triggers/request_completed')
@@ -68,14 +72,14 @@ test('a Zap goes from form picker to delivered submission and back to unsubscrib
   )
 
   // 3. Testing the trigger fetches a sample of the same shape.
-  const [sample] = await trigger.operation.performList(z, { authData, inputData: { formId: 'form_live', eventType: 'submission_created' } })
+  const [sample] = await trigger.operation.performList(z, { authData, inputData: { formId: 'form_live' } })
   expect(sample).toMatchObject({ type: 'submission.completed', test: true, data: { form: { id: 'form_live', snapshotId: 'snap_form_live' } } })
 
   // 4. Turning the Zap on registers a signed subscription.
   const subscribeData = await trigger.operation.performSubscribe(z, {
     authData,
     targetUrl: 'https://hooks.zapier.com/hooks/standard/1',
-    inputData: { formId: 'form_live', eventType: 'submission_created' },
+    inputData: { formId: 'form_live' },
   })
   expect(formbase.subscriptions.get(subscribeData.id)).toMatchObject({
     provider: 'zapier',
@@ -117,33 +121,33 @@ test('a Zap goes from form picker to delivered submission and back to unsubscrib
 })
 
 test('an abandoned-submission Zap registers its idle window and tests against submission.abandoned', async () => {
-  const subscribeData = await trigger.operation.performSubscribe(z, {
+  const subscribeData = await abandonedTrigger.operation.performSubscribe(z, {
     authData,
     targetUrl: 'https://hooks.zapier.com/hooks/standard/2',
-    inputData: { formId: 'form_live', eventType: 'submission_abandoned', idleWindow: '3d' },
+    inputData: { formId: 'form_live', idleWindow: '3d' },
   })
   expect(formbase.subscriptions.get(subscribeData.id)).toMatchObject({ eventType: 'submission_abandoned', idleWindow: '3d' })
 
-  const [sample] = await trigger.operation.performList(z, { authData, inputData: { formId: 'form_live', eventType: 'submission_abandoned' } })
+  const [sample] = await abandonedTrigger.operation.performList(z, { authData, inputData: { formId: 'form_live' } })
   expect(sample.type).toBe('submission.abandoned')
 
-  await trigger.operation.performUnsubscribe(z, { authData, subscribeData })
+  await abandonedTrigger.operation.performUnsubscribe(z, { authData, subscribeData })
 })
 
 test('an updated-submission Zap registers without an idle window and tests against submission.updated', async () => {
-  const subscribeData = await trigger.operation.performSubscribe(z, {
+  const subscribeData = await updatedTrigger.operation.performSubscribe(z, {
     authData,
     targetUrl: 'https://hooks.zapier.com/hooks/standard/3',
-    inputData: { formId: 'form_live', eventType: 'submission_updated' },
+    inputData: { formId: 'form_live' },
   })
   const subscription = formbase.subscriptions.get(subscribeData.id)
   expect(subscription).toMatchObject({ eventType: 'submission_updated' })
   expect(subscription).not.toHaveProperty('idleWindow')
 
-  const [sample] = await trigger.operation.performList(z, { authData, inputData: { formId: 'form_live', eventType: 'submission_updated' } })
+  const [sample] = await updatedTrigger.operation.performList(z, { authData, inputData: { formId: 'form_live' } })
   expect(sample.type).toBe('submission.updated')
 
-  await trigger.operation.performUnsubscribe(z, { authData, subscribeData })
+  await updatedTrigger.operation.performUnsubscribe(z, { authData, subscribeData })
 })
 
 test('a Zap on an unpublished form still gets the envelope outputs', async () => {
@@ -154,7 +158,7 @@ test('a Zap on an unpublished form still gets the envelope outputs', async () =>
 
 test('an expired token surfaces as RefreshAuthError so Zapier refreshes it', async () => {
   await expect(
-    trigger.operation.performList(z, { authData: { access_token: 'fbo_expired' }, inputData: { formId: 'form_live', eventType: 'submission_created' } })
+    trigger.operation.performList(z, { authData: { access_token: 'fbo_expired' }, inputData: { formId: 'form_live' } })
   ).rejects.toBeInstanceOf(z.errors.RefreshAuthError)
 })
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.0
+
+- Breaking: replace the Event field of Public Link Submission with one trigger per event. Triggers show up in Zapier's trigger picker, where an option inside a dropdown does not, and each trigger now carries only the inputs its event needs.
+  - Update trigger/public_link_submission: renamed Public Link Submission Created. It fires for new submissions only (`submission.completed`) and has no Event field.
+  - Add trigger/public_link_submission_updated (Public Link Submission Updated): fires when a respondent edits a submission they already sent through the public link (`submission.updated`). The form must allow editing after submit.
+  - Add trigger/public_link_submission_abandoned (Public Link Submission Abandoned): fires when a public-link draft sits idle past its window (`submission.abandoned`). The idle window is a required field of this trigger.
+  - Each trigger rejects a delivery of another event type, like the request triggers do.
+  - Update trigger/request_completed: the Form help text names Public Link Submission Created.
+- Migration: a Zap that set Event to Submission updated or Submission abandoned moves to the matching trigger. A Zap on Submission created keeps working as Public Link Submission Created. No 2.x version has live Zaps, so nothing is migrated automatically.
+
 ## 2.1.0
 
 - Update trigger/public_link_submission: add the Submission updated event. It fires when a respondent edits a submission they already sent through the public link (the form must allow editing after submit), and its test sample carries `type: submission.updated`.

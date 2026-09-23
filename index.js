@@ -6,6 +6,8 @@ const { version } = require('./package.json')
 const authentication = require('./authentication')
 const hydrators = require('./hydrators')
 const publicLinkSubmission = require('./triggers/public_link_submission')
+const publicLinkSubmissionUpdated = require('./triggers/public_link_submission_updated')
+const publicLinkSubmissionAbandoned = require('./triggers/public_link_submission_abandoned')
 const requestCompleted = require('./triggers/request_completed')
 const requestExpired = require('./triggers/request_expired')
 const requestCanceled = require('./triggers/request_canceled')
@@ -26,6 +28,8 @@ module.exports = {
   hydrators,
   triggers: {
     [publicLinkSubmission.key]: publicLinkSubmission,
+    [publicLinkSubmissionUpdated.key]: publicLinkSubmissionUpdated,
+    [publicLinkSubmissionAbandoned.key]: publicLinkSubmissionAbandoned,
     [requestCompleted.key]: requestCompleted,
     [requestExpired.key]: requestExpired,
     [requestCanceled.key]: requestCanceled,
