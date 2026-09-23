@@ -2,25 +2,17 @@
 
 const { formbaseRpc } = require('./utils/request')
 
-async function getSubmissionPdfUrl(z, bundle) {
-  const formId = bundle.inputData.formId
-  const submissionId = bundle.inputData.submissionId
-  const pdf = await formbaseRpc({
-    z,
-    bundle,
-    method: 'submissions.pdf',
-    params: { formId, submissionId },
-  })
+/**
+ * Resolves the PDF File output lazily, when a later Zap step reads it.
+ *
+ * Returns a URL rather than the bytes: Zapier accepts a URL from a file
+ * hydrator, and the formbase storage proxy re-signs the underlying object on
+ * every request, so the link keeps working for as long as the PDF is retained.
+ */
+async function downloadSubmissionPdf(z, bundle) {
+  const { formId, submissionId } = bundle.inputData
+  const pdf = await formbaseRpc({ z, bundle, method: 'submissions.pdf', params: { formId, submissionId } })
   return pdf.url
 }
 
-async function downloadSubmissionPdf(z, bundle) {
-  // Zapier file hydrators may return a permanent public URL. The Formbase
-  // storage proxy refreshes the underlying R2 signed URL on every request.
-  return getSubmissionPdfUrl(z, bundle)
-}
-
-module.exports = {
-  getSubmissionPdfUrl,
-  downloadSubmissionPdf,
-}
+module.exports = { downloadSubmissionPdf }

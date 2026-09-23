@@ -6,6 +6,7 @@ const hydrators = require('../hydrators')
 // listForms lives in utils/ rather than on this module so the Zapier schema
 // validator does not flag it as an unknown trigger property.
 
+// What a subscription watches (`webhooks.create` eventType) …
 const WEBHOOK_EVENTS = {
   created: 'submission_created',
   abandoned: 'submission_abandoned',
@@ -16,7 +17,8 @@ const WEBHOOK_EVENT_CHOICES = {
   [WEBHOOK_EVENTS.abandoned]: 'Submission abandoned',
 }
 
-// The `type` of the event formbase POSTs for each subscription.
+// … and the `type` of the event each one delivers. A created subscription also
+// receives `submission.updated` when a completed submission is edited.
 const PAYLOAD_EVENT_TYPES = {
   [WEBHOOK_EVENTS.created]: 'submission.completed',
   [WEBHOOK_EVENTS.abandoned]: 'submission.abandoned',
@@ -34,7 +36,7 @@ const SIGNATURE_MAX_AGE_SECONDS = 5 * 60
 
 // The event envelope formbase sends (docs/external-api.md § Events): every
 // answer once in `data.answers` (keyed by field key), its readable text under
-// the same key in `data.display`.
+// the same key in `data.display`. `pdfFile` is this trigger's own addition.
 const SAMPLE = {
   id: 'evt_01HEXAMPLEEXAMPLE',
   type: 'submission.completed',
@@ -54,12 +56,14 @@ const SAMPLE = {
     },
     answers: {
       your_name: 'Ada Lovelace',
+      plan: 'pro',
       how_likely_to_recommend: 9,
       // A repeating group: one row object per instance, keyed by member field key.
       attendees: [{ attendee_name: 'Grace Hopper' }, { attendee_name: 'Alan Turing' }],
     },
     display: {
       your_name: 'Ada Lovelace',
+      plan: 'Pro',
       how_likely_to_recommend: '9',
       attendees: 'Grace Hopper, Alan Turing',
     },
@@ -81,6 +85,9 @@ const ENVELOPE_OUTPUT_FIELDS = [
   { key: 'data__submission__pdfUrl', label: 'PDF Link', type: 'string' },
   { key: 'data__submission__pdfFile', label: 'PDF File', type: 'file' },
   { key: 'data__submission__language', label: 'Submission Language', type: 'string' },
+  // Present only when the submission answered a request.
+  { key: 'data__request__id', label: 'Request ID', type: 'string' },
+  { key: 'data__request__externalId', label: 'Request External ID', type: 'string' },
 ]
 
 const ZAPIER_TYPE_BY_FIELD_TYPE = {
@@ -94,71 +101,61 @@ const ZAPIER_TYPE_BY_FIELD_TYPE = {
 /**
  * One Zapier output field per answer, from the form's published field list:
  * `data__answers__<key>` carries the stored value, `data__display__<key>` the
- * readable text. A repeating group's members are line items under the group key.
+ * readable text. A repeating group's members are line items under the group
+ * key; a matrix answers one field per row.
+ *
+ * A form that is not published yet has no field list (`published: false`, no
+ * items), so the Zap can still be wired up on the envelope alone.
  */
 async function outputFields(z, bundle) {
   const formId = bundle.inputData.formId
   if (!formId) return ENVELOPE_OUTPUT_FIELDS
 
-  const data = await listPublishedFields(z, bundle, formId)
-  if (!data) return ENVELOPE_OUTPUT_FIELDS
-  const fields = []
-  for (const item of data?.items ?? []) {
-    if (Array.isArray(item.members)) {
-      // A group entry carries no title of its own; its key is what the caller addresses it by.
-      for (const member of item.members) {
-        fields.push({ key: `data__answers__${item.key}[]${member.key}`, label: `${item.key} › ${member.title}` })
-      }
-      fields.push({ key: `data__display__${item.key}`, label: `${item.key} (display)`, type: 'string' })
-      continue
-    }
-    fields.push({
-      key: `data__answers__${item.key}`,
-      label: item.title,
-      ...(ZAPIER_TYPE_BY_FIELD_TYPE[item.type] ? { type: ZAPIER_TYPE_BY_FIELD_TYPE[item.type] } : {}),
-    })
-    fields.push({ key: `data__display__${item.key}`, label: `${item.title} (display)`, type: 'string' })
+  const { items } = await formbaseRpc({ z, bundle, method: 'fields.list', params: { formId } })
+  return [...ENVELOPE_OUTPUT_FIELDS, ...items.flatMap(answerOutputFields)]
+}
+
+function answerOutputFields(item) {
+  if (Array.isArray(item.members)) {
+    // A group has no title of its own; its key is what the caller addresses it by.
+    return [
+      ...item.members.map((member) => ({
+        key: `data__answers__${item.key}[]${member.key}`,
+        label: `${item.key} › ${member.title}`,
+      })),
+      { key: `data__display__${item.key}`, label: `${item.key} (display)`, type: 'string' },
+    ]
   }
-  return [...ENVELOPE_OUTPUT_FIELDS, ...fields]
+  const display = { key: `data__display__${item.key}`, label: `${item.title} (display)`, type: 'string' }
+  if (Array.isArray(item.rows)) {
+    // A matrix answer is `{ row_key: column_key }`, which Zapier flattens per row.
+    return [
+      ...item.rows.map((row) => ({
+        key: `data__answers__${item.key}__${row.key}`,
+        label: `${item.title} › ${row.label}`,
+        type: 'string',
+      })),
+      display,
+    ]
+  }
+  const type = ZAPIER_TYPE_BY_FIELD_TYPE[item.type]
+  return [{ key: `data__answers__${item.key}`, label: item.title, ...(type ? { type } : {}) }, display]
 }
 
 /**
- * The form's published field list, or null when the form has none to list yet —
- * `fields.list` rejects an unpublished form with VALIDATION_ERROR, and a Zap may
- * legitimately be wired up before the form is published. Output fields are
- * advisory, so that case falls back to the envelope; every other failure
- * (auth, rate limit, transport) still surfaces.
+ * Registers the REST hook. The input fields already constrain `eventType` and
+ * `idleWindow` to valid choices and the server rejects anything else with a
+ * readable VALIDATION_ERROR, so nothing is re-validated here.
  */
-async function listPublishedFields(z, bundle, formId) {
-  try {
-    return await formbaseRpc({ z, bundle, method: 'fields.list', params: { formId } })
-  } catch (error) {
-    if (error?.code === 'VALIDATION_ERROR' || error?.code === 'NOT_FOUND') return null
-    throw error
-  }
-}
-
 async function performSubscribe(z, bundle) {
-  const eventType = bundle.inputData.eventType
-  if (!Object.prototype.hasOwnProperty.call(WEBHOOK_EVENT_CHOICES, eventType)) {
-    throw new Error('Select a valid formbase webhook event.')
-  }
-
-  const idleWindow = bundle.inputData.idleWindow
-  if (
-    eventType === WEBHOOK_EVENTS.abandoned &&
-    !Object.prototype.hasOwnProperty.call(WEBHOOK_IDLE_WINDOW_CHOICES, idleWindow)
-  ) {
-    throw new Error('Select when formbase should consider the submission abandoned.')
-  }
-
+  const { formId, eventType, idleWindow } = bundle.inputData
   const signingSecret = createWebhookSigningSecret()
   const data = await formbaseRpc({
     z,
     bundle,
     method: 'webhooks.create',
     params: {
-      formId: bundle.inputData.formId,
+      formId,
       targetUrl: bundle.targetUrl,
       provider: 'zapier',
       eventType,
@@ -172,9 +169,7 @@ async function performSubscribe(z, bundle) {
 }
 
 async function performUnsubscribe(z, bundle) {
-  const id = bundle.subscribeData?.id
-  // webhooks.delete expects the param key `subscriptionId`.
-  return formbaseRpc({ z, bundle, method: 'webhooks.delete', params: { subscriptionId: id } })
+  return formbaseRpc({ z, bundle, method: 'webhooks.delete', params: { subscriptionId: bundle.subscribeData.id } })
 }
 
 async function perform(z, bundle) {
@@ -185,32 +180,24 @@ async function perform(z, bundle) {
 }
 
 async function performList(z, bundle) {
-  const data = await formbaseRpc({
-    z,
-    bundle,
-    method: 'submissions.sample',
-    params: { formId: bundle.inputData.formId },
-  })
-  return [addPdfFileHydrator(z, withSelectedPayloadEventType(data, bundle.inputData.eventType))]
-}
-
-function withSelectedPayloadEventType(payload, webhookEventType) {
-  const type = PAYLOAD_EVENT_TYPES[webhookEventType]
-  if (!type || payload?.type === type) return payload
-  return { ...payload, type }
+  const { formId, eventType } = bundle.inputData
+  const sample = await formbaseRpc({ z, bundle, method: 'submissions.sample', params: { formId } })
+  // submissions.sample always describes a completed submission; relabel it so an
+  // abandoned-submission Zap tests against the event type it will receive.
+  return [addPdfFileHydrator(z, { ...sample, type: PAYLOAD_EVENT_TYPES[eventType] })]
 }
 
 function addPdfFileHydrator(z, payload) {
   // `pdfUrl: null` is the event saying no PDF is kept for this submission, so
   // the PDF File output is legitimately absent.
-  const pdfUrl = payload?.data?.submission?.pdfUrl
+  const pdfUrl = payload.data?.submission?.pdfUrl
   if (!pdfUrl) return payload
 
   // A PDF with nothing to hydrate it from is a payload we no longer understand.
   // Fail loudly: silently dropping the output is how the PDF File mapping
   // disappeared from live Zaps the last time the envelope changed.
-  const formId = payload?.data?.form?.id
-  const submissionId = payload?.data?.submission?.id
+  const formId = payload.data.form?.id
+  const submissionId = payload.data.submission.id
   if (!formId || !submissionId) {
     throw new Error('formbase event carries a submission PDF but no data.form.id / data.submission.id to hydrate it from.')
   }
@@ -247,17 +234,20 @@ function getIdleWindowInputFields(_z, bundle) {
   ]
 }
 
+function findSignatureHeader(headers) {
+  if (!headers || typeof headers !== 'object') return undefined
+  const entry = Object.entries(headers).find(([name]) => {
+    const normalizedName = name.toLowerCase()
+    return normalizedName === 'http-x-formbase-signature' || normalizedName === 'x-formbase-signature'
+  })
+  return entry?.[1]
+}
+
 function verifyWebhookSignature(bundle) {
   const secret = bundle.subscribeData?.signingSecret
   if (typeof secret !== 'string' || secret.length === 0) return false
 
-  const headers = bundle.rawRequest?.headers
-  if (!headers || typeof headers !== 'object') return false
-
-  const signatureHeader = Object.entries(headers).find(([name]) => {
-    const normalizedName = name.toLowerCase()
-    return normalizedName === 'http-x-formbase-signature' || normalizedName === 'x-formbase-signature'
-  })?.[1]
+  const signatureHeader = findSignatureHeader(bundle.rawRequest?.headers)
   if (typeof signatureHeader !== 'string') return false
 
   const match = SIGNATURE_HEADER_PATTERN.exec(signatureHeader)
@@ -306,7 +296,8 @@ const trigger = {
         choices: WEBHOOK_EVENT_CHOICES,
         default: WEBHOOK_EVENTS.created,
         altersDynamicFields: true,
-        helpText: 'Abandoned submissions require partial-submission tracking on the formbase workspace.',
+        helpText:
+          'Submission created also fires when a completed submission is edited later (event type submission.updated). Abandoned submissions require partial-submission tracking on the formbase workspace.',
       },
       getIdleWindowInputFields,
     ],

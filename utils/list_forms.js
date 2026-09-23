@@ -1,38 +1,35 @@
-'use strict';
+'use strict'
 
-const { formbaseRpc } = require('./request');
+const { formbaseRpc } = require('./request')
+
+const FORMS_PAGE_SIZE = 100
 
 /**
- * Fetch the user's forms via JSON-RPC and shape them for a Zapier dynamic
- * dropdown — the dropdown reference `form_list.id.name` expects each
- * row to expose `id` and `name` keys.
+ * Every form of the connected workspace, shaped for the `form_list.id.name`
+ * dynamic dropdown.
  *
- * `forms.list` requires a `workspaceId`, so we first pull all workspaces the
- * user belongs to and fan out one call per workspace.
- *
- * Both `workspaces.list` and `forms.list` return a paginated `{ items, hasMore }`
- * envelope (after the JSON-RPC `{ ok, data }` strip).
+ * A formbase OAuth token is scoped to the one workspace the user picked on the
+ * consent screen, so `workspaces.list` answers with exactly that workspace and
+ * the dropdown needs no workspace prefix. `forms.list` pages by cursor.
  */
 async function listForms(z, bundle) {
-  const workspacesResult = await formbaseRpc({ z, bundle, method: 'workspaces.list', params: {} });
-  const workspaces = workspacesResult?.items ?? [];
+  const { items: workspaces } = await formbaseRpc({ z, bundle, method: 'workspaces.list' })
+  const workspace = workspaces[0]
+  if (!workspace) throw new Error('This formbase connection has no workspace. Reconnect and pick one.')
 
-  const all = [];
-  for (const ws of workspaces) {
+  const forms = []
+  let cursor
+  do {
     const page = await formbaseRpc({
       z,
       bundle,
       method: 'forms.list',
-      params: { workspaceId: ws.id, limit: 100 },
-    });
-    for (const f of page.items) {
-      all.push({
-        id: f.id,
-        name: workspaces.length > 1 ? `${ws.name} / ${f.name}` : f.name,
-      });
-    }
-  }
-  return all;
+      params: { workspaceId: workspace.id, limit: FORMS_PAGE_SIZE, ...(cursor ? { cursor } : {}) },
+    })
+    forms.push(...page.items.map((form) => ({ id: form.id, name: form.name })))
+    cursor = page.hasMore ? page.nextCursor : null
+  } while (cursor)
+  return forms
 }
 
-module.exports = { listForms };
+module.exports = { listForms }

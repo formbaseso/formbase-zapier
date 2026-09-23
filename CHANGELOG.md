@@ -3,9 +3,11 @@
 ## 1.1.0
 
 - Update trigger/submission: read the formbase event envelope (`id`, `type`, `createdAt`, `apiVersion`, `test`, `data`) that replaced the flat payload; `fields[]` is gone and every answer arrives once in `data.answers` with its readable text in `data.display`.
-- Update trigger/submission: build output fields per form from `fields.list`, so mapped fields carry the question's title and key instead of a generic `fields[]` line item.
+- Update trigger/submission: build output fields per form from `fields.list`, so mapped fields carry the question's title and key instead of a generic `fields[]` line item. A matrix gets one field per row, and the request a submission answered is offered as Request ID / Request External ID.
 - Update trigger/submission: the PDF file hydrates from `data.submission.pdfUrl` (was `submission.submissionPdfLink`), and an event that carries a PDF without the ids to hydrate it now fails loudly instead of dropping the PDF File output.
-- Fix trigger/submission: output fields fall back to the envelope when `fields.list` rejects an unpublished form, so a Zap can still be wired up before the form is published.
+- Update trigger/submission: an unpublished form lists the envelope outputs alone (`fields.list` answers `published: false`), so a Zap can be wired up before the form is published; any other `fields.list` failure surfaces instead of hiding the answer fields.
+- Update trigger/form_list: list the connected workspace's forms across every `forms.list` page. An OAuth token is scoped to one workspace, so the workspace prefix is gone.
+- Update app: drop the `beforeRequest` Bearer middleware, which also ran on the OAuth token and refresh requests; the JSON-RPC client sets its own header.
 
 ## 1.0.0
 

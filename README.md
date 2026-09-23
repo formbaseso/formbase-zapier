@@ -16,38 +16,47 @@ and `package-lock.json`, as required by the Zapier CLI.
   - `test` calls `me.get` (`{ id, email, name }`) so the label renders `{{email}}`.
   - Env vars: `CLIENT_ID`, `CLIENT_SECRET` (see setup below), optional `BASE_URL`
     (default `https://api.formbase.so`).
-- **Trigger `submission`** (REST Hooks) — subscribes via `webhooks.create`
-  (returns `{ subscriptionId, … }`), unsubscribes via `webhooks.delete`
-  (`subscriptionId`), and supports `submission_created` plus
+- **Trigger `submission`** (REST Hooks) — subscribes via `webhooks.create`,
+  unsubscribes via `webhooks.delete`, and offers `submission_created` plus
   `submission_abandoned` (requires partial-submission tracking). Abandoned Zaps
-  choose a required idle window: 12 hours, 1 day, 3 days, or 1 week. formbase
-  checks idle drafts hourly, so delivery can occur up to one hour after the
-  selected threshold. Completed-submission subscriptions receive both new
-  (`submission.completed`) and later edited (`submission.updated`) events; no
-  separate updated-submission trigger is needed. Abandoned-submission
-  subscriptions receive `submission.abandoned`. Samples come from
-  `submissions.sample`; Zapier labels an abandoned trigger's sample
-  `submission.abandoned` so filters and mapped fields reflect its live payload.
-  Every event is the formbase envelope `{ id, type, createdAt, apiVersion, test,
-  data }`: `data.answers` holds each answer once under its field key,
-  `data.display` the readable text under the same key, and
-  `data.submission.language` the BCP-47 language. Output fields are built per
-  form from `fields.list` (`data__answers__<key>`, `data__display__<key>`; a
-  repeating group's members are line items under the group key), so the Zap
-  editor shows real question titles.
-- **Webhook verification** — each REST Hook subscription generates a unique
-  signing secret, passes it to `webhooks.create`, stores it in Zapier's
+  choose a required idle window: 12 hours, 1 day, 3 days, or 1 week; formbase
+  sweeps idle drafts hourly, so delivery can occur up to one hour after the
+  threshold. A created subscription receives both `submission.completed` and
+  `submission.updated` (an edited submission); an abandoned subscription
+  receives `submission.abandoned`. The trigger key stays `submission` so live
+  Zaps migrate instead of breaking.
+  - Every event is the formbase envelope `{ id, type, createdAt, apiVersion,
+    test, data }`: `data.answers` holds each answer once under its field key,
+    `data.display` the readable text under the same key, `data.submission` the
+    email, timestamp, PDF link and language, and `data.request` the request a
+    submission answered, when it did.
+  - Output fields are built per form from `fields.list`
+    (`data__answers__<key>` and `data__display__<key>`, labelled with the
+    question title). A repeating group's members are line items under the
+    group key; a matrix gets one field per row. A form that is not published
+    yet lists the envelope alone, so a Zap can be wired up before publishing.
+  - Samples come from `submissions.sample`, relabelled `submission.abandoned`
+    for an abandoned trigger so filters and mapped fields reflect its live
+    payload.
+  - The PDF File output hydrates from `submissions.pdf` when the event carries
+    `data.submission.pdfUrl`; an event that carries a PDF without the ids to
+    hydrate it fails loudly instead of dropping the output.
+- **Webhook verification** — each subscription generates a unique signing
+  secret, passes it to `webhooks.create`, stores it in Zapier's
   `subscribeData`, and verifies `X-formbase-Signature` against the exact raw
   request body with HMAC-SHA256. Requests with a missing/invalid signature or a
   timestamp more than five minutes old are rejected.
 - **Form picker** (`triggers/form_list.js`, hidden trigger keyed `form_list`) —
-  feeds the `submission` `formId` dropdown via `form_list.id.name`.
-- **JSON-RPC client** (`utils/request.js`, `utils/list_forms.js`) — POSTs to
-  `${BASE_URL}/api/v1` with `Authorization: Bearer <access_token>`, parses the
-  `{ ok, data, error }` envelope; `workspaces.list`/`forms.list` return
-  `{ items, hasMore }`. Error mapping: `UNAUTHORIZED` → `RefreshAuthError`
-  (triggers token refresh + retry), `RATE_LIMITED` → `ThrottledError`, else
-  `Error("CODE: message")`.
+  feeds the `submission` `formId` dropdown via `form_list.id.name`. An OAuth
+  token is scoped to one workspace, so the picker lists that workspace's forms,
+  following `forms.list` cursors.
+- **JSON-RPC client** (`utils/request.js`) — POSTs to `${BASE_URL}/api/v1` with
+  `Authorization: Bearer <access_token>` and unwraps the `{ ok, data, error }`
+  envelope. `UNAUTHORIZED` → `RefreshAuthError` (token refresh + retry),
+  `RATE_LIMITED` → `ThrottledError`, anything else → `Error("CODE: message")`
+  with `error.code` set. There is no `beforeRequest` middleware: the client sets
+  its own header, and a middleware would also run on the OAuth token and
+  refresh requests.
 
 ### Auth-config gotchas (don't regress these)
 
@@ -110,7 +119,7 @@ with them — the server authenticates each client by its stored auth method.
 ```bash
 cd formbase-zapier
 npm install
-npm test                          # jest + nock, no credentials needed
+npm test                          # jest: unit tests (nock) + a lifecycle test against an in-process formbase API
 
 npx zapier-platform login --sso         # one-time
 npx zapier-platform register "formbase"   # one-time; creates .zapierapprc
@@ -140,12 +149,17 @@ for Public review (~1–3 weeks).
 ```
 formbase-zapier/
 ├── authentication.js        # OAuth 2.0 (auth code + PKCE)
-├── index.js                 # app export, Bearer-injecting beforeRequest hook
+├── hydrators.js             # lazy PDF File download via submissions.pdf
+├── index.js                 # app export
 ├── triggers/
-│   ├── submission.js        # REST Hooks trigger
+│   ├── submission.js        # REST Hooks trigger: subscribe, verify, output fields
 │   └── form_list.js         # hidden trigger (key: form_list) for the form picker
 ├── utils/
 │   ├── request.js           # JSON-RPC transport + error mapping
 │   └── list_forms.js        # form-picker dropdown source
-└── test/                    # jest + nock unit tests
+└── test/
+    ├── helpers.js           # z stand-in, signed-delivery bundle
+    ├── fake-formbase.js     # in-process formbase API for the lifecycle test
+    ├── *.test.js            # unit tests (nock)
+    └── lifecycle.integration.test.js
 ```
