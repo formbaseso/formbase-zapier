@@ -45,6 +45,9 @@ const SAMPLES = {
         id: 'sub_xyz789',
         respondentEmail: 'ada@example.com',
         submittedAt: '2026-04-26T12:34:56.000Z',
+        // Null until the respondent edits the submission after submitting.
+        updatedAt: null,
+        editCount: 0,
         pdfUrl: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
         pdfFile: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
         language: 'en',

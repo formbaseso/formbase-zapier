@@ -241,6 +241,8 @@ class FakeFormbase {
           id: test ? 'sub_example000000000000' : 'sub_1',
           respondentEmail: 'respondent@example.com',
           submittedAt: NOW,
+          updatedAt: null,
+          editCount: 0,
           pdfUrl,
           language: 'en',
         },

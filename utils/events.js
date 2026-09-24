@@ -19,6 +19,8 @@ const SUBMISSION_OUTPUT_FIELDS = [
   { key: 'data__submission__id', label: 'Submission ID', type: 'string' },
   { key: 'data__submission__respondentEmail', label: 'Respondent Email', type: 'string' },
   { key: 'data__submission__submittedAt', label: 'Submitted At', type: 'datetime' },
+  { key: 'data__submission__updatedAt', label: 'Last Edited At', type: 'datetime' },
+  { key: 'data__submission__editCount', label: 'Edit Count', type: 'integer' },
   { key: 'data__submission__pdfUrl', label: 'PDF Link', type: 'string' },
   { key: 'data__submission__pdfFile', label: 'PDF File', type: 'file' },
   { key: 'data__submission__language', label: 'Submission Language', type: 'string' },
