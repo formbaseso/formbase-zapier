@@ -1,6 +1,6 @@
 {
   "name": "formbase-zapier",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "Official formbase integration for Zapier — resume Zaps when a customer completes a request or submits a form.",
   "license": "MIT",
   "homepage": "https://formbase.so",

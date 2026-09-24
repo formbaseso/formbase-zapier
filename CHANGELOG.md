@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.2.0
+
+- Update every submission and request trigger and Get Request: a Schedule appointment answer and a Payment answer each map property by property. A booking gives Status, Start, End, Time Zone, Attendee Name, Attendee Email, Meeting URL, Event Title, Provider and Provider Booking ID; a payment gives Status, Amount, Currency, Amount Refunded, Receipt URL, Paid At, Refunded At, Disputed At, Provider and Provider Payment Intent ID. The `(display)` field keeps one line of text for each. The samples carry both.
+- Behaviour change from formbase (event `apiVersion` `2026-09-24`), not from this version: a booking answer is an object, not a sentence. A Zap that mapped the booking answer itself now receives an object; map one of its properties, or the booking's `(display)` field for the old sentence. A Payment question used to have no answer; it now has one.
+
 ## 4.1.0
 
 - Update every submission and request trigger: add Last Edited At (`data.submission.updatedAt`) and Edit Count (`data.submission.editCount`), so a Zap can tell a fresh submission from one the respondent changed afterwards. Last Edited At is empty until the first edit; Edit Count starts at 0. The samples carry both fields.
