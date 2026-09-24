@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.1.0
+
+- Update every submission and request trigger: add Last Edited At (`data.submission.updatedAt`) and Edit Count (`data.submission.editCount`), so a Zap can tell a fresh submission from one the respondent changed afterwards. Last Edited At is empty until the first edit; Edit Count starts at 0. The samples carry both fields.
+
 ## 4.0.0
 
 - Breaking: remove trigger/public_link_submission and add trigger/public_link_submission_created: Public Link Submission Created under the key that matches its label and its Updated and Abandoned siblings. Behaviour is unchanged. Zaps built on `public_link_submission` do not migrate; rebuild them on Public Link Submission Created. No 3.0.0 Zap exists, so nothing needs rebuilding.
