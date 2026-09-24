@@ -37,12 +37,14 @@ describe('public-link submission trigger definitions', () => {
 
   test('sample is the event envelope: answers once, display under the same keys, PDF outputs', () => {
     const { sample } = trigger.operation
-    expect(sample.apiVersion).toBe('2026-09-22')
+    expect(sample.apiVersion).toBe('2026-09-24')
     expect(sample.data.submission.pdfUrl).toBeTruthy()
     expect(sample.data.submission.pdfFile).toBeTruthy()
     expect(sample).not.toHaveProperty('fields')
     expect(Array.isArray(sample.data.answers.attendees)).toBe(true)
     expect(Object.keys(sample.data.display)).toEqual(Object.keys(sample.data.answers))
+    expect(sample.data.answers.book_a_call).toMatchObject({ status: 'confirmed', start: expect.any(String), timeZone: expect.any(String) })
+    expect(sample.data.answers.pay_the_fee).toMatchObject({ status: 'paid', amount: 40, currency: 'USD' })
   })
 
   test.each(TRIGGERS)('$key picks its form from the hidden form_list trigger and has no Event field', ({ trigger }) => {
@@ -94,6 +96,8 @@ describe('outputFields', () => {
             repeating: true,
             members: [{ key: 'attendee_name', type: 'text', title: 'Attendee name', required: false, prefillable: true }],
           },
+          { key: 'book_a_call', type: 'schedule-appointment', title: 'Book a call', required: false, prefillable: false },
+          { key: 'pay_the_fee', type: 'payment', title: 'Pay the fee', required: false, prefillable: false },
         ],
       },
     })
@@ -114,9 +118,25 @@ describe('outputFields', () => {
         { key: 'data__display__satisfaction', label: 'How did we do? (display)', type: 'string' },
         { key: 'data__answers__attendees[]attendee_name', label: 'attendees › Attendee name' },
         { key: 'data__display__attendees', label: 'attendees (display)', type: 'string' },
+        { key: 'data__answers__book_a_call__start', label: 'Book a call › Start', type: 'datetime' },
+        { key: 'data__answers__book_a_call__end', label: 'Book a call › End', type: 'datetime' },
+        { key: 'data__answers__book_a_call__timeZone', label: 'Book a call › Time Zone', type: 'string' },
+        { key: 'data__answers__book_a_call__meetingUrl', label: 'Book a call › Meeting URL', type: 'string' },
+        { key: 'data__answers__book_a_call__status', label: 'Book a call › Status', type: 'string' },
+        { key: 'data__answers__book_a_call__attendee__email', label: 'Book a call › Attendee Email', type: 'string' },
+        { key: 'data__display__book_a_call', label: 'Book a call (display)', type: 'string' },
+        { key: 'data__answers__pay_the_fee__status', label: 'Pay the fee › Status', type: 'string' },
+        { key: 'data__answers__pay_the_fee__amount', label: 'Pay the fee › Amount', type: 'number' },
+        { key: 'data__answers__pay_the_fee__currency', label: 'Pay the fee › Currency', type: 'string' },
+        { key: 'data__answers__pay_the_fee__receiptUrl', label: 'Pay the fee › Receipt URL', type: 'string' },
+        { key: 'data__answers__pay_the_fee__paidAt', label: 'Pay the fee › Paid At', type: 'datetime' },
+        { key: 'data__display__pay_the_fee', label: 'Pay the fee (display)', type: 'string' },
       ])
     )
     expect(keys).not.toContain('data__answers__satisfaction')
+    // An object answer is mapped per property, never as one opaque value.
+    expect(keys).not.toContain('data__answers__book_a_call')
+    expect(keys).not.toContain('data__answers__pay_the_fee')
   })
 
   test('falls back to the envelope alone before a form is chosen', async () => {

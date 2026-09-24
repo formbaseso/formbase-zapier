@@ -42,7 +42,7 @@ function sampleFor(payloadType) {
     id: 'evt_01HEXAMPLEEXAMPLE',
     type: payloadType,
     createdAt: '2026-04-26T12:34:56.000Z',
-    apiVersion: '2026-09-22',
+    apiVersion: '2026-09-24',
     test: false,
     data: {
       form: { id: 'form_abc123', name: 'Customer Feedback', snapshotId: 'snap_abc123' },
@@ -64,12 +64,38 @@ function sampleFor(payloadType) {
         how_likely_to_recommend: 9,
         // A repeating group: one row object per instance, keyed by member field key.
         attendees: [{ attendee_name: 'Grace Hopper' }, { attendee_name: 'Alan Turing' }],
+        // A booking and a payment answer are objects; display keeps one line of text.
+        book_a_call: {
+          status: 'confirmed',
+          start: '2026-04-29T07:00:00.000Z',
+          end: '2026-04-29T07:30:00.000Z',
+          timeZone: 'Europe/Oslo',
+          attendee: { name: 'Ada Lovelace', email: 'respondent@example.com' },
+          meetingUrl: 'https://app.cal.com/video/example',
+          provider: 'cal.com',
+          providerBookingId: 'booking_abc123',
+          eventTitle: 'Intro call',
+        },
+        pay_the_fee: {
+          status: 'paid',
+          amount: 40,
+          currency: 'USD',
+          amountRefunded: 0,
+          receiptUrl: 'https://pay.stripe.com/receipts/example',
+          paidAt: '2026-04-26T12:30:00.000Z',
+          refundedAt: null,
+          disputedAt: null,
+          provider: 'stripe',
+          providerPaymentIntentId: 'pi_abc123',
+        },
       },
       display: {
         your_name: 'Ada Lovelace',
         plan: 'Pro',
         how_likely_to_recommend: '9',
         attendees: 'Grace Hopper, Alan Turing',
+        book_a_call: 'Intro call · Apr 29, 2026, 9:00 AM - 9:30 AM (Europe/Oslo) · Ada Lovelace <respondent@example.com> · https://app.cal.com/video/example',
+        pay_the_fee: '$40.00 USD · Paid',
       },
     },
   }
