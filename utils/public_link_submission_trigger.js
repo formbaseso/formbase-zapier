@@ -31,7 +31,7 @@ const IDLE_WINDOW_INPUT_FIELD = {
 // The event envelope formbase sends: every answer once in `data.answers`
 // (keyed by field key), its readable text under the same key in `data.display`.
 function sampleFor(payloadType) {
-  const { answers, display } = sampleBookingAndPayment({ name: 'Ada Lovelace', email: 'respondent@example.com' })
+  const bookingAndPayment = sampleBookingAndPayment({ name: 'Ada Lovelace', email: 'respondent@example.com' })
   return sampleEnvelope(payloadType, {
     form: { id: 'form_abc123', name: 'Customer Feedback', snapshotId: 'snap_abc123' },
     submission: sampleSubmission('respondent@example.com'),
@@ -41,14 +41,14 @@ function sampleFor(payloadType) {
       how_likely_to_recommend: 9,
       // A repeating group: one row object per instance, keyed by member field key.
       attendees: [{ attendee_name: 'Grace Hopper' }, { attendee_name: 'Alan Turing' }],
-      ...answers,
+      ...bookingAndPayment.answers,
     },
     display: {
       your_name: 'Ada Lovelace',
       plan: 'Pro',
       how_likely_to_recommend: '9',
       attendees: 'Grace Hopper, Alan Turing',
-      ...display,
+      ...bookingAndPayment.display,
     },
   })
 }

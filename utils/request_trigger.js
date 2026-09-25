@@ -28,7 +28,7 @@ function sampleFor(outcome, request, data = {}) {
   return sampleEnvelope(payloadType, { request: { ...SAMPLE_REQUEST, status: outcome, ...request }, ...data })
 }
 
-const { answers, display } = sampleBookingAndPayment({ name: 'Ada Lovelace', email: 'ada@example.com' })
+const bookingAndPayment = sampleBookingAndPayment({ name: 'Ada Lovelace', email: 'ada@example.com' })
 
 // The sample a Zap editor sees before it tests the trigger: the same envelope
 // `requests.sample` answers with, minus the form's own field keys. Only a
@@ -40,8 +40,8 @@ const SAMPLES = {
     {
       form: { id: 'form_abc123', name: 'Vendor onboarding', snapshotId: 'snap_abc123' },
       submission: sampleSubmission('ada@example.com'),
-      answers: { case_id: 'CASE-9', company_name: 'Acme', decision: 'approve', ...answers },
-      display: { case_id: 'CASE-9', company_name: 'Acme', decision: 'Approve', ...display },
+      answers: { case_id: 'CASE-9', company_name: 'Acme', decision: 'approve', ...bookingAndPayment.answers },
+      display: { case_id: 'CASE-9', company_name: 'Acme', decision: 'Approve', ...bookingAndPayment.display },
     }
   ),
   expired: sampleFor('expired', { expiredAt: '2026-05-26T12:00:00.000Z' }),
