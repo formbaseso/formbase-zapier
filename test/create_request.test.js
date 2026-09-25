@@ -69,7 +69,7 @@ describe('create_request definition', () => {
     expect(create.key).toBe('create_request')
     expect(create.operation.cleanInputData).toBe(false)
     const formField = create.operation.inputFields.find((field) => field.key === 'formId')
-    expect(formField).toMatchObject({ required: true, dynamic: 'form_list.id.name', altersDynamicFields: true })
+    expect(formField).toMatchObject({ required: true, dynamic: 'form_list.id.label', altersDynamicFields: true })
     expect(create.operation.inputFields.map((field) => field.key)).toEqual(
       expect.arrayContaining(['recipientEmail', 'recipientName', 'language', 'delivery', 'reminders', 'expiresAt', 'externalId', 'metadata', 'test'])
     )

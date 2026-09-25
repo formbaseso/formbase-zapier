@@ -12,6 +12,7 @@ const requestCompleted = require('./triggers/request_completed')
 const requestExpired = require('./triggers/request_expired')
 const requestCanceled = require('./triggers/request_canceled')
 const formList = require('./triggers/form_list')
+const requestList = require('./triggers/request_list')
 const createRequest = require('./creates/create_request')
 const cancelRequest = require('./creates/cancel_request')
 const remindRequest = require('./creates/remind_request')
@@ -34,6 +35,7 @@ module.exports = {
     [requestExpired.key]: requestExpired,
     [requestCanceled.key]: requestCanceled,
     [formList.key]: formList,
+    [requestList.key]: requestList,
   },
   creates: {
     [createRequest.key]: createRequest,

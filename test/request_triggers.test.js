@@ -40,7 +40,7 @@ describe('request trigger definitions', () => {
     expect(trigger.operation.cleanInputData).toBe(false)
     expect(trigger.operation.sample.type).toBe(payloadType)
     expect(trigger.operation.sample.data.request.status).toBe(payloadType.replace('request.', ''))
-    expect(trigger.operation.inputFields).toEqual([expect.objectContaining({ key: 'formId', required: true, dynamic: 'form_list.id.name' })])
+    expect(trigger.operation.inputFields).toEqual([expect.objectContaining({ key: 'formId', required: true, dynamic: 'form_list.id.label' })])
   })
 
   test('only the completed sample carries the submission block and answers', () => {

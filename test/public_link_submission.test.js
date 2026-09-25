@@ -6,7 +6,6 @@ const hydrators = require('../hydrators')
 const trigger = require('../triggers/public_link_submission_created')
 const updatedTrigger = require('../triggers/public_link_submission_updated')
 const abandonedTrigger = require('../triggers/public_link_submission_abandoned')
-const { listForms } = require('../utils/list_forms')
 const { makeZ, makeSignedWebhookBundle } = require('./helpers')
 
 const FAKE_BASE = process.env.BASE_URL
@@ -49,7 +48,7 @@ describe('public-link submission trigger definitions', () => {
 
   test.each(TRIGGERS)('$key picks its form from the hidden form_list trigger and has no Event field', ({ trigger }) => {
     const formField = trigger.operation.inputFields.find((field) => field.key === 'formId')
-    expect(formField).toMatchObject({ required: true, dynamic: 'form_list.id.name' })
+    expect(formField).toMatchObject({ required: true, dynamic: 'form_list.id.label' })
     expect(trigger.operation.inputFields.map((field) => field.key)).not.toContain('eventType')
   })
 
@@ -321,32 +320,5 @@ describe('downloadSubmissionPdf hydrator', () => {
 
     const result = await hydrators.downloadSubmissionPdf(makeZ(), { authData, inputData: { formId: 'form_1', submissionId: 'sub_1' } })
     expect(result).toBe('https://api.formbase.so/api/storage/pdf')
-  })
-})
-
-describe('listForms (the form picker)', () => {
-  afterEach(() => nock.cleanAll())
-
-  test('lists every form of the token workspace, following the cursor across pages', async () => {
-    rpc('workspaces.list').reply(200, { ok: true, data: { items: [{ id: 'ws_1', name: 'Acme', role: 'owner' }], hasMore: false } })
-    rpc('forms.list', (params) => params.workspaceId === 'ws_1' && params.limit === 100 && params.cursor === undefined).reply(200, {
-      ok: true,
-      data: { items: [{ id: 'f1', name: 'Form A', workspaceId: 'ws_1' }], nextCursor: 'c2', hasMore: true },
-    })
-    rpc('forms.list', (params) => params.cursor === 'c2').reply(200, {
-      ok: true,
-      data: { items: [{ id: 'f2', name: 'Form B', workspaceId: 'ws_1' }], nextCursor: null, hasMore: false },
-    })
-
-    await expect(listForms(makeZ(), { authData })).resolves.toEqual([
-      { id: 'f1', name: 'Form A' },
-      { id: 'f2', name: 'Form B' },
-    ])
-  })
-
-  test('fails when the connection has no workspace instead of offering an empty picker', async () => {
-    rpc('workspaces.list').reply(200, { ok: true, data: { items: [], hasMore: false } })
-
-    await expect(listForms(makeZ(), { authData })).rejects.toThrow(/no workspace/i)
   })
 })

@@ -111,7 +111,7 @@ class FakeFormbase {
     if (params.workspaceId !== this.workspace.id) return notFound('Workspace not found')
     const limit = params.limit || 100
     const start = params.cursor ? Number(params.cursor) : 0
-    const items = this.forms.slice(start, start + limit).map((form) => ({ id: form.id, name: form.name, workspaceId: this.workspace.id }))
+    const items = this.forms.slice(start, start + limit).map((form) => ({ id: form.id, name: form.name, workspaceId: this.workspace.id, isPublished: form.published }))
     const hasMore = start + limit < this.forms.length
     return { data: { items, hasMore, nextCursor: hasMore ? String(start + limit) : null } }
   }

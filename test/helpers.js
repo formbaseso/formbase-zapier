@@ -11,9 +11,11 @@ class ThrottledError extends Error {}
  * A stand-in for Zapier's `z`: `z.request` performs a real HTTP request (so
  * nock or a local server can answer it) and parses JSON into `response.data`
  * the way zapier-platform-core does; `z.dehydrateFile` returns a readable
- * pointer instead of a hydration token.
+ * pointer instead of a hydration token; `z.cursor` keeps one string, as Zapier's
+ * cursor store does between the pages of one dropdown.
  */
-function makeZ() {
+function makeZ({ cursor = null } = {}) {
+  let storedCursor = cursor
   return {
     request: (options) => {
       const url = new URL(options.url)
@@ -39,6 +41,13 @@ function makeZ() {
       })
     },
     dehydrateFile: (_hydrator, inputData) => `hydrate-file:${inputData.formId}:${inputData.submissionId}`,
+    cursor: {
+      get: async () => storedCursor,
+      set: async (value) => {
+        if (typeof value !== 'string') throw new TypeError('cursor value must be a string')
+        storedCursor = value
+      },
+    },
     errors: { RefreshAuthError, ThrottledError },
   }
 }

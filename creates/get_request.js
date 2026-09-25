@@ -44,7 +44,7 @@ const create = {
         label: 'Form',
         type: 'string',
         required: false,
-        dynamic: 'form_list.id.name',
+        dynamic: 'form_list.id.label',
         altersDynamicFields: true,
         helpText: 'Optional. Pick the request’s form so the answer outputs are labelled with its questions.',
       },

@@ -1,7 +1,7 @@
 'use strict'
 
 const { formbaseRpc } = require('../utils/request')
-const { listFields } = require('../utils/fields')
+const { listFields, ZAPIER_TYPE_BY_FIELD_TYPE } = require('../utils/fields')
 
 const DELIVERY_CHOICES = {
   none: 'None: the Zap sends the link itself',
@@ -12,14 +12,6 @@ const DELIVERY_CHOICES = {
 const SINGLE_CHOICE_TYPES = new Set(['radio', 'select'])
 // … or a list of option keys.
 const MULTI_CHOICE_TYPES = new Set(['checkbox', 'ranking', 'picture-choice'])
-
-const ZAPIER_TYPE_BY_FIELD_TYPE = {
-  number: 'number',
-  rating: 'number',
-  scale: 'number',
-  switch: 'boolean',
-  date: 'datetime',
-}
 
 /**
  * The Zapier input key for one field key. A field key may contain `.` and `-`
@@ -257,7 +249,7 @@ const create = {
         label: 'Form',
         type: 'string',
         required: true,
-        dynamic: 'form_list.id.name',
+        dynamic: 'form_list.id.label',
         altersDynamicFields: true,
         helpText: 'The published form the recipient will complete. Its field keys appear below once it is chosen.',
       },

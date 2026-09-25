@@ -1,7 +1,7 @@
 'use strict'
 
 const { formbaseRpc } = require('../utils/request')
-const { getWorkspace } = require('../utils/list_forms')
+const { getWorkspace } = require('../utils/dropdowns')
 const { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY } = require('../utils/request_summary')
 
 /**
@@ -43,7 +43,7 @@ const search = {
         label: 'Form',
         type: 'string',
         required: false,
-        dynamic: 'form_list.id.name',
+        dynamic: 'form_list.id.label',
         helpText: 'Optional. Narrows the search to one form; otherwise the whole workspace is searched.',
       },
       {

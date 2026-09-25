@@ -61,8 +61,8 @@ test('a Zap goes from form picker to delivered submission and back to unsubscrib
   // 1. The form picker lists the workspace's forms.
   const forms = await formList.operation.perform(z, { authData })
   expect(forms).toEqual([
-    { id: 'form_live', name: 'Vendor onboarding' },
-    { id: 'form_draft', name: 'Draft' },
+    { id: 'form_live', label: 'Vendor onboarding' },
+    { id: 'form_draft', label: 'Draft (not published)' },
   ])
 
   // 2. The Zap editor labels outputs from the published field list.
