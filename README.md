@@ -2,10 +2,37 @@
 
 Native Zapier marketplace app for [formbase](https://formbase.so). formbase collects and verifies information from customers for workflows and AI agents: a Zap or an agent creates a request, the customer completes a branded form without an account, and the verified answers come back keyed by field key. This app creates, finds, reminds and cancels requests from a Zap, and resumes Zaps when a request is completed, expires or is canceled, or when a form is submitted.
 
+## What a Zap can do
+
+| Kind    | Name                             | What it does                                                                                                     |
+| ------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Trigger | Request Completed                | A recipient completed a request. Answers per field key, the outcome, the submission and its PDF.                 |
+| Trigger | Request Expired                  | A request reached its expiry unanswered.                                                                         |
+| Trigger | Request Canceled                 | A request was canceled, with the reason.                                                                         |
+| Trigger | Public Link Submission Created   | A respondent submitted the form through its public link.                                                         |
+| Trigger | Public Link Submission Updated   | A respondent edited a public-link submission they already sent. The form must allow editing after submit.        |
+| Trigger | Public Link Submission Abandoned | A public-link draft sat idle for 12 hours, 1 day, 3 days or 1 week. Needs partial-submission tracking.           |
+| Action  | Create Request                   | Assign a published form to one recipient, with prefilled, read-only and context fields and documents. Returns the link. |
+| Action  | Get Request                      | Read a request, with its answers once it is completed.                                                           |
+| Action  | Remind Request                   | Email the recipient a reminder now.                                                                              |
+| Action  | Cancel Request                   | Withdraw a pending request, with an optional reason.                                                             |
+| Search  | Find Request                     | Find requests by the External ID a Create Request step gave them.                                                |
+
+Things that make a Zap easier to build:
+
+- **Form** dropdowns list the connected workspace's forms. A form that is not published yet says so: its triggers can be wired up already, but Create Request needs it published.
+- **Create Request** loads one input per field of the picked form: a dropdown for a choice question, line items for a repeating group, one input per row for a matrix, and a multi-select of the prefilled fields to lock.
+- **Documents** on Create Request, for a form with a Documents block: map files from earlier steps (an email attachment, a Google Drive or Dropbox file) and the recipient opens and downloads them in the form, below the documents the form already has. PDFs and images, up to 25 MB each; each keeps its own file name. A form with several Documents blocks also asks which block they go into.
+- **Request** inputs (Get, Remind, Cancel) offer a dropdown of the newest requests, labelled by recipient, status and External ID, or an inline **Find Request** step.
+- Every trigger and Get Request label their answer outputs with the form's question titles once a form is picked. A booking and a payment answer map property by property (start time, amount, …).
+- **External ID** on Create Request is also the idempotency key: a replayed Zap run gets the same request back (`deduplicated: true`) instead of sending the recipient a second link.
+
+formbase posts every event once, to one trigger: a completed request fires **Request Completed** alone, never Public Link Submission Created. A Zap that wants every answer, whichever channel produced it, is one Zap on each trigger.
+
+## How it works
+
 This repository is a self-contained CommonJS project with its own `node_modules`
 and `package-lock.json`, as required by the Zapier CLI.
-
-## What it ships
 
 - **Auth** (`authentication.js`) — OAuth 2.0 authorization code + **PKCE (S256,
   mandatory)**. Users click Connect, sign in, pick a workspace on the consent
@@ -16,93 +43,76 @@ and `package-lock.json`, as required by the Zapier CLI.
   - `test` calls `me.get` (`{ id, email, name }`) so the label renders `{{email}}`.
   - Env vars: `CLIENT_ID`, `CLIENT_SECRET` (see setup below), optional `BASE_URL`
     (default `https://api.formbase.so`).
-- **Public-link submission triggers** (`triggers/public_link_submission_created.js`,
-  `triggers/public_link_submission_updated.js`,
-  `triggers/public_link_submission_abandoned.js`, built by one factory in
-  `utils/public_link_submission_trigger.js`) — REST Hooks that subscribe via
-  `webhooks.create`, unsubscribe via `webhooks.delete`, and each deliver one
-  event type:
-  - **Public Link Submission Created** (`public_link_submission_created`) subscribes
-    to `submission_created` and receives `submission.completed` for a new
-    submission.
-  - **Public Link Submission Updated** (`public_link_submission_updated`)
-    subscribes to `submission_updated` and receives `submission.updated` when
-    the respondent edits a submission they already sent; the form must allow
-    editing after submit.
-  - **Public Link Submission Abandoned** (`public_link_submission_abandoned`,
-    requires partial-submission tracking) subscribes to `submission_abandoned`
-    and receives `submission.abandoned`. It has a required idle window: 12
-    hours, 1 day, 3 days, or 1 week; formbase sweeps idle drafts hourly, so
-    delivery can occur up to one hour after the threshold.
-  - A delivery whose `type` is not the one the trigger subscribed to is
-    rejected, so a misrouted event never runs the wrong Zap.
+- **Triggers** — six REST hooks built by one factory, `utils/hook_trigger.js`.
+  Each picks a form, subscribes with one `webhooks.create` `eventType`,
+  unsubscribes with `webhooks.delete`, and accepts exactly one event `type`; a
+  delivery of any other type is rejected, so a misrouted event never runs the
+  wrong Zap. `utils/request_trigger.js` and
+  `utils/public_link_submission_trigger.js` hold what differs: the event, the
+  labels, the sample, and the idle window of the abandoned trigger.
+
+  | Trigger key                        | `eventType`            | Delivered `type`       | Test sample                     |
+  | ---------------------------------- | ---------------------- | ---------------------- | ------------------------------- |
+  | `request_completed`                | `request_completed`    | `request.completed`    | `requests.sample`               |
+  | `request_expired`                  | `request_expired`      | `request.expired`      | `requests.sample`               |
+  | `request_canceled`                 | `request_canceled`     | `request.canceled`     | `requests.sample`               |
+  | `public_link_submission_created`   | `submission_created`   | `submission.completed` | `submissions.sample`            |
+  | `public_link_submission_updated`   | `submission_updated`   | `submission.updated`   | `submissions.sample`, relabeled |
+  | `public_link_submission_abandoned` | `submission_abandoned` | `submission.abandoned` | `submissions.sample`, relabeled |
+
   - Every event is the formbase envelope `{ id, type, createdAt, apiVersion,
-    test, data }`: `data.answers` holds each answer once under its field key,
-    `data.display` the readable text under the same key and `data.submission`
-    the email, timestamp, PDF link and language. It fires for public-link
-    submissions only: a completed request never reaches it (one channel, one
-    event), so no `data.request` block appears here.
+    test, data }`. `data.answers` holds each answer once under its field key,
+    `data.display` the readable text under the same key, and `data.submission`
+    the email, timestamps, edit count, PDF link and language. A request event
+    adds `data.request`; an expired or canceled request carries that block
+    alone.
   - Output fields are built per form from `fields.list`
     (`data__answers__<key>` and `data__display__<key>`, labelled with the
     question title). A repeating group's members are line items under the
-    group key; a matrix gets one field per row. A form that is not published
-    yet lists the envelope alone, so a Zap can be wired up before publishing.
-  - Samples come from `submissions.sample`, relabelled `submission.updated` or
-    `submission.abandoned` for the Updated or Abandoned trigger so filters and
-    mapped fields reflect its live payload.
+    group key, a matrix gets one field per row, and a booking or a payment one
+    field per property. A form that is not published yet lists the envelope
+    alone, so a Zap can be wired up before publishing.
   - The PDF File output hydrates from `submissions.pdf` when the event carries
     `data.submission.pdfUrl`; an event that carries a PDF without the ids to
     hydrate it fails loudly instead of dropping the output.
-- **Webhook verification** — each subscription generates a unique signing
-  secret, passes it to `webhooks.create`, stores it in Zapier's
-  `subscribeData`, and verifies `X-formbase-Signature` against the exact raw
-  request body with HMAC-SHA256. Requests with a missing/invalid signature or a
-  timestamp more than five minutes old are rejected.
-- **Request triggers** (`triggers/request_completed.js`,
-  `triggers/request_expired.js`, `triggers/request_canceled.js`, built by one
-  factory in `utils/request_trigger.js`) — REST Hooks keyed
-  `request_completed`, `request_expired` and `request_canceled`. Each
-  subscribes with its own `eventType` and shares subscribe, unsubscribe and
-  signature verification with the public-link submission triggers (`utils/webhooks.js`). A
-  delivery whose `type` is not the one the Zap subscribed to is rejected, so a
-  misrouted event never resumes the wrong Zap. Samples come from
-  `requests.sample { formId, eventType }`.
-  - Every event carries `data.request`: id, external id, status, outcome,
-    recipient, language, metadata, context and the timestamps. **Request
-    Completed** also carries the submission block, `data.answers` and
-    `data.display`, and lists one output per field key from `fields.list`
-    like Public Link Submission Created does. Expired and canceled list the request
-    block alone.
-  - A completed request fires **Request Completed** alone, never
-    **Public Link Submission Created**. A Zap that wants every answer, whichever channel produced
-    it, is one Zap on each trigger.
-- **Actions** (`creates/`):
-  - **Create Request** (`create_request`, `requests.create`) — pick a form,
-    and the editor loads one input per prefillable field key (`prefill`),
-    one per hidden field marked `context`, and a multi-select of the
-    prefilled keys to lock (`readonly`), all built from `fields.list`. A
-    repeating group becomes line items and a matrix one input per row. Plain
-    inputs cover recipient email and name, language, delivery (`none` or
-    `email`), reminders, expiry, external id, metadata and test mode. Zapier
-    input keys cannot hold `.` or `-`, so field keys are encoded to `_` in
-    the editor and the payload is rebuilt from the live field list on every
-    run; two keys that encode the same fail loudly. The external id, when
-    set, is also sent as `idempotencyKey`, so a replayed Zap run reuses the
-    request instead of creating a second one. The output is the created
-    summary with the share link under `url`.
-  - **Cancel Request** (`cancel_request`, `requests.cancel`) — request id and
-    an optional reason.
-  - **Remind Request** (`remind_request`, `requests.remind`) — request id.
-  - **Get Request** (`get_request`, `requests.get`) — the request with its
-    share link, answers and display under `answers__<key>` and
-    `display__<key>`; an optional form picker labels those outputs.
-- **Search `find_request`** (`searches/find_request.js`, `requests.list`) —
-  by external id, within a form or across the connected workspace, optionally
-  including test requests. Returns the matching requests, or nothing.
-- **Form picker** (`triggers/form_list.js`, hidden trigger keyed `form_list`) —
-  feeds every `formId` dropdown via `form_list.id.name`. An OAuth
-  token is scoped to one workspace, so the picker lists that workspace's forms,
-  following `forms.list` cursors.
+- **Webhook verification** (`utils/webhooks.js`) — each subscription generates
+  a unique signing secret, passes it to `webhooks.create`, stores it in
+  Zapier's `subscribeData`, and verifies `X-formbase-Signature` against the
+  exact raw request body with HMAC-SHA256. Requests with a missing or invalid
+  signature, or a timestamp more than five minutes old, are rejected.
+- **Create Request** (`creates/create_request.js`, `requests.create`) — the
+  per-field inputs come from `fields.list` (`prefill` for visible questions,
+  `context` for hidden fields, `readonly` for the prefilled keys to lock).
+  Zapier input keys cannot hold `.` or `-`, so field keys are encoded to `_`
+  in the editor and the payload is rebuilt from the live field list on every
+  run; two keys that encode the same fail loudly. The output is the created
+  summary with the share link under `url`.
+- **Documents** (`utils/documents.js`) — a form with a Documents block gets a
+  `documents` file list, plus a `documentsBlock` dropdown when it has several.
+  Zapier hands each file over as a URL. After every other input has been
+  checked, each file is downloaded, reserved with `documents.create` (size and
+  sha256 declared) and PUT to the presigned URL it answers with, in parallel,
+  and `requests.create` references the ids in the order the files were given.
+  The name comes from the download's `Content-Disposition`, else the URL,
+  else `Document N.<ext>`; the type from the file's first bytes, else the
+  response, else the name. The PUT carries no formbase token: the presigned
+  URL is its own credential.
+  - A replayed Zap uploads its files again under new document ids. formbase
+    counts a document by its bytes, block and name for the idempotency check,
+    so the replay with the same External ID still gets the original request
+    back. That needs a formbase backend with that rule (formbase commit
+    "let a retry that uploads the same document again deduplicate"); an older
+    one refuses the replay with `IDEMPOTENCY_CONFLICT`.
+- **Get, Remind, Cancel** (`creates/`) and **Find Request**
+  (`searches/find_request.js`, `requests.list` by external id, within a form
+  or across the workspace) share the request summary outputs in
+  `utils/request_summary.js`. Timestamps of a request summary are Unix
+  milliseconds; event timestamps are ISO 8601.
+- **Dropdowns** (`utils/dropdowns.js`) — hidden triggers `form_list`
+  (`form_list.id.label`, every page of `forms.list`) and `request_list`
+  (`request_list.id.label`, `requests.list` one page per dropdown page, the
+  formbase cursor kept in `z.cursor`). An OAuth token is scoped to one
+  workspace, so both list that workspace.
 - **JSON-RPC client** (`utils/request.js`) — POSTs to `${BASE_URL}/api/v1` with
   `Authorization: Bearer <access_token>` and unwraps the `{ ok, data, error }`
   envelope. `UNAUTHORIZED` → `RefreshAuthError` (token refresh + retry),
@@ -173,10 +183,11 @@ with them — the server authenticates each client by its stored auth method.
 cd formbase-zapier
 npm install
 npm test                          # jest: unit tests (nock) + a lifecycle test against an in-process formbase API
+npm run validate                  # Zapier's structural schema check, offline (CI runs it too)
 
 npx zapier-platform login --sso         # one-time
 npx zapier-platform register "formbase"   # one-time; creates .zapierapprc
-npx zapier-platform validate
+npx zapier-platform validate            # adds Zapier's online style checks
 npx zapier-platform push
 npx zapier-platform promote 1.0.0
 ```
@@ -205,26 +216,29 @@ formbase-zapier/
 ├── hydrators.js             # lazy PDF File download via submissions.pdf
 ├── index.js                 # app export
 ├── triggers/
-│   ├── submission.js        # REST Hooks trigger: submission completed / abandoned
-│   ├── request_completed.js # REST Hooks trigger: a request is completed
-│   ├── request_expired.js   # REST Hooks trigger: a request expires
-│   ├── request_canceled.js  # REST Hooks trigger: a request is canceled
-│   └── form_list.js         # hidden trigger (key: form_list) for the form picker
+│   ├── request_completed.js / request_expired.js / request_canceled.js
+│   ├── public_link_submission_created.js / _updated.js / _abandoned.js
+│   ├── form_list.js         # hidden: Form dropdown
+│   └── request_list.js      # hidden: Request dropdown
 ├── creates/
 │   ├── create_request.js    # requests.create with per-field prefill/context inputs
-│   ├── cancel_request.js    # requests.cancel
+│   ├── get_request.js       # requests.get
 │   ├── remind_request.js    # requests.remind
-│   └── get_request.js       # requests.get
+│   └── cancel_request.js    # requests.cancel
 ├── searches/
 │   └── find_request.js      # requests.list by external id
 ├── utils/
-│   ├── request.js           # JSON-RPC transport + error mapping
-│   ├── list_forms.js        # form-picker dropdown source + workspace lookup
-│   ├── webhooks.js          # subscribe, unsubscribe, signature verification
-│   ├── fields.js            # fields.list and per-key output fields
+│   ├── hook_trigger.js      # the one REST hook trigger factory
+│   ├── request_trigger.js   # request events: event types, samples
+│   ├── public_link_submission_trigger.js  # submission events: event types, samples, idle window
+│   ├── samples.js           # sample envelope, submission, booking and payment
 │   ├── events.js            # envelope output fields, PDF hydrator
-│   ├── request_trigger.js   # factory for the three request triggers
-│   └── request_summary.js   # request output fields, sample, Request ID input
+│   ├── fields.js            # fields.list, per-key output fields, field type map
+│   ├── webhooks.js          # subscribe, unsubscribe, signature verification
+│   ├── dropdowns.js         # workspace lookup, form and request dropdown sources
+│   ├── documents.js         # download, reserve and upload Create Request documents
+│   ├── request_summary.js   # request output fields, sample, Request input
+│   └── request.js           # JSON-RPC transport + error mapping
 └── test/
     ├── helpers.js           # z stand-in, signed-delivery bundle
     ├── fake-formbase.js     # in-process formbase API for the lifecycle test

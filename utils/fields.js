@@ -2,6 +2,8 @@
 
 const { formbaseRpc } = require('./request')
 
+// The Zapier field type of a formbase field type, where it is not plain text.
+// Output fields and Create Request inputs both read it.
 const ZAPIER_TYPE_BY_FIELD_TYPE = {
   number: 'number',
   rating: 'number',
@@ -98,4 +100,4 @@ function answerOutputFields(item, prefix) {
   return [{ key: `${prefix}answers__${item.key}`, label: item.title, ...(type ? { type } : {}) }, display]
 }
 
-module.exports = { listFields, answerOutputFields }
+module.exports = { listFields, answerOutputFields, ZAPIER_TYPE_BY_FIELD_TYPE }

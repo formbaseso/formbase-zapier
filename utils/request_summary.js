@@ -65,11 +65,15 @@ const SAMPLE_REQUEST_SUMMARY = {
   dataPurgedAt: null,
 }
 
+// Pick a recent request from the dropdown while building the Zap, map the id
+// from an earlier step, or add a Find Request step inline (`search`).
 const REQUEST_ID_INPUT_FIELD = {
   key: 'requestId',
-  label: 'Request ID',
+  label: 'Request',
   type: 'string',
   required: true,
+  dynamic: 'request_list.id.label',
+  search: 'find_request.id',
   helpText: 'The Request ID from a Create Request step, a Find Request step or a request trigger.',
 }
 

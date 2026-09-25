@@ -1,9 +1,9 @@
 'use strict'
 
 const { formbaseRpc } = require('./request')
-const { subscribe, unsubscribe, requireVerifiedDelivery } = require('./webhooks')
-const { listFields, answerOutputFields } = require('./fields')
-const { EVENT_OUTPUT_FIELDS, SUBMISSION_OUTPUT_FIELDS, REQUEST_OUTPUT_FIELDS, addPdfFileHydrator } = require('./events')
+const { createHookTrigger } = require('./hook_trigger')
+const { EVENT_OUTPUT_FIELDS, SUBMISSION_OUTPUT_FIELDS, REQUEST_OUTPUT_FIELDS } = require('./events')
+const { sampleEnvelope, sampleSubmission, sampleBookingAndPayment } = require('./samples')
 
 // A request event subscription (`webhooks.create` eventType) and the `type`
 // of the one event it delivers (docs/external-api.md § Callbacks).
@@ -23,150 +23,50 @@ const SAMPLE_REQUEST = {
   createdAt: '2026-04-26T12:00:00.000Z',
 }
 
-function sampleFor(status, extra) {
-  return {
-    id: 'evt_example000000000000',
-    type: `request.${status}`,
-    createdAt: '2026-04-26T12:34:56.000Z',
-    apiVersion: '2026-09-24',
-    test: false,
-    data: { request: { ...SAMPLE_REQUEST, status, ...extra.request }, ...extra.data },
-  }
+function sampleFor(outcome, request, data = {}) {
+  const { payloadType } = REQUEST_EVENTS[outcome]
+  return sampleEnvelope(payloadType, { request: { ...SAMPLE_REQUEST, status: outcome, ...request }, ...data })
 }
+
+const bookingAndPayment = sampleBookingAndPayment({ name: 'Ada Lovelace', email: 'ada@example.com' })
 
 // The sample a Zap editor sees before it tests the trigger: the same envelope
-// `requests.sample` answers with, minus the form's own field keys.
+// `requests.sample` answers with, minus the form's own field keys. Only a
+// completed request carries the submission, the answers and the display.
 const SAMPLES = {
-  completed: sampleFor('completed', {
-    request: { outcome: 'approve', completedAt: '2026-04-26T12:34:56.000Z' },
-    data: {
+  completed: sampleFor(
+    'completed',
+    { outcome: 'approve', completedAt: '2026-04-26T12:34:56.000Z' },
+    {
       form: { id: 'form_abc123', name: 'Vendor onboarding', snapshotId: 'snap_abc123' },
-      submission: {
-        id: 'sub_xyz789',
-        respondentEmail: 'ada@example.com',
-        submittedAt: '2026-04-26T12:34:56.000Z',
-        // Null until the respondent edits the submission after submitting.
-        updatedAt: null,
-        editCount: 0,
-        pdfUrl: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
-        pdfFile: 'https://api.formbase.so/api/storage/00000000-0000-4000-8000-000000000000',
-        language: 'en',
-      },
-      answers: {
-        case_id: 'CASE-9',
-        company_name: 'Acme',
-        decision: 'approve',
-        // A booking and a payment answer are objects; display keeps one line of text.
-        book_a_call: {
-          status: 'confirmed',
-          start: '2026-04-29T07:00:00.000Z',
-          end: '2026-04-29T07:30:00.000Z',
-          timeZone: 'Europe/Oslo',
-          attendee: { name: 'Ada Lovelace', email: 'ada@example.com' },
-          meetingUrl: 'https://app.cal.com/video/example',
-          provider: 'cal.com',
-          providerBookingId: 'booking_abc123',
-          eventTitle: 'Intro call',
-        },
-        pay_the_fee: {
-          status: 'paid',
-          amount: 40,
-          currency: 'USD',
-          amountRefunded: 0,
-          receiptUrl: 'https://pay.stripe.com/receipts/example',
-          paidAt: '2026-04-26T12:30:00.000Z',
-          refundedAt: null,
-          disputedAt: null,
-          provider: 'stripe',
-          providerPaymentIntentId: 'pi_abc123',
-        },
-      },
-      display: {
-        case_id: 'CASE-9',
-        company_name: 'Acme',
-        decision: 'Approve',
-        book_a_call: 'Intro call · Apr 29, 2026, 9:00 AM - 9:30 AM (Europe/Oslo) · Ada Lovelace <ada@example.com> · https://app.cal.com/video/example',
-        pay_the_fee: '$40.00 USD · Paid',
-      },
-    },
-  }),
-  expired: sampleFor('expired', { request: { expiredAt: '2026-05-26T12:00:00.000Z' } }),
-  canceled: sampleFor('canceled', {
-    request: { canceledAt: '2026-04-27T09:00:00.000Z', cancelReason: 'Order withdrawn' },
-  }),
+      submission: sampleSubmission('ada@example.com'),
+      answers: { case_id: 'CASE-9', company_name: 'Acme', decision: 'approve', ...bookingAndPayment.answers },
+      display: { case_id: 'CASE-9', company_name: 'Acme', decision: 'Approve', ...bookingAndPayment.display },
+    }
+  ),
+  expired: sampleFor('expired', { expiredAt: '2026-05-26T12:00:00.000Z' }),
+  canceled: sampleFor('canceled', { canceledAt: '2026-04-27T09:00:00.000Z', cancelReason: 'Order withdrawn' }),
 }
 
-/**
- * A REST hook trigger for one request outcome. All three share the subscribe,
- * unsubscribe and signature code of the public-link submission triggers; only the event
- * type, the sample and (for a completed request) the answer outputs differ.
- */
+/** The trigger for one request outcome, keyed by its subscription event type. */
 function createRequestTrigger({ outcome, label, description, helpText }) {
   const { eventType, payloadType } = REQUEST_EVENTS[outcome]
   const isCompleted = outcome === 'completed'
-  const envelopeOutputFields = [
-    ...EVENT_OUTPUT_FIELDS,
-    ...REQUEST_OUTPUT_FIELDS,
-    ...(isCompleted ? SUBMISSION_OUTPUT_FIELDS : []),
-  ]
 
-  async function outputFields(z, bundle) {
-    const formId = bundle.inputData.formId
-    if (!isCompleted || !formId) return envelopeOutputFields
-
-    const items = await listFields(z, bundle, formId)
-    return [...envelopeOutputFields, ...items.flatMap((item) => answerOutputFields(item, 'data__'))]
-  }
-
-  async function performSubscribe(z, bundle) {
-    return subscribe(z, bundle, { eventType })
-  }
-
-  /**
-   * A subscription only ever receives its own event type, so anything else is
-   * a payload this trigger does not understand. Rejecting it keeps a Zap that
-   * waits for one outcome from running on another.
-   */
-  async function perform(z, bundle) {
-    requireVerifiedDelivery(bundle)
-    const event = bundle.cleanedRequest
-    if (event.type !== payloadType) {
-      throw new Error(`formbase delivered a ${event.type} event to a ${payloadType} subscription.`)
-    }
-    return [addPdfFileHydrator(z, event)]
-  }
-
-  async function performList(z, bundle) {
-    const { formId } = bundle.inputData
-    const sample = await formbaseRpc({ z, bundle, method: 'requests.sample', params: { formId, eventType } })
-    return [addPdfFileHydrator(z, sample)]
-  }
-
-  return {
+  return createHookTrigger({
     key: eventType,
     noun: 'Request',
-    display: { label, description },
-    operation: {
-      type: 'hook',
-      cleanInputData: false,
-      inputFields: [
-        {
-          key: 'formId',
-          label: 'Form',
-          type: 'string',
-          required: true,
-          dynamic: 'form_list.id.name',
-          helpText,
-        },
-      ],
-      performSubscribe,
-      performUnsubscribe: unsubscribe,
-      perform,
-      performList,
-      sample: SAMPLES[outcome],
-      outputFields: [outputFields],
-    },
-  }
+    label,
+    description,
+    formHelpText: helpText,
+    eventType,
+    payloadType,
+    envelopeOutputFields: [...EVENT_OUTPUT_FIELDS, ...REQUEST_OUTPUT_FIELDS, ...(isCompleted ? SUBMISSION_OUTPUT_FIELDS : [])],
+    carriesAnswers: isCompleted,
+    sample: SAMPLES[outcome],
+    performList: (z, bundle) =>
+      formbaseRpc({ z, bundle, method: 'requests.sample', params: { formId: bundle.inputData.formId, eventType } }),
+  })
 }
 
 module.exports = { createRequestTrigger, REQUEST_EVENTS }
