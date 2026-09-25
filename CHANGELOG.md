@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Update create/get_request, create/remind_request and create/cancel_request: the Request input offers a dropdown of the newest requests, labelled by recipient, status and External ID, and a Find Request step can be added inline to fill it. Get Request lists the requests of its picked form. A mapped Request ID works as before.
+- Update every Form dropdown: a form that is not published yet reads "(not published)". Create Request needs a published form; the triggers can be wired up before publishing.
+- Internal: the six REST hook triggers come from one factory, and the request and submission samples share their envelope, submission, booking and payment pieces. Behaviour and outputs are unchanged.
+- Internal: zapier-platform-core 19.1.0, Jest 30, nock 14; CI runs Zapier's structural validation.
+
 ## 4.2.0
 
 - Update every submission and request trigger and Get Request: a Schedule appointment answer and a Payment answer each map property by property. A booking gives Status, Start, End, Time Zone, Attendee Name, Attendee Email, Meeting URL, Event Title, Provider and Provider Booking ID; a payment gives Status, Amount, Currency, Amount Refunded, Receipt URL, Paid At, Refunded At, Disputed At, Provider and Provider Payment Intent ID. The `(display)` field keeps one line of text for each. The samples carry both.
