@@ -121,7 +121,7 @@ function documentInputs(items) {
     list: true,
     required: false,
     helpText:
-      'Files the recipient can open and download in the form, such as a contract or a price list. PDF or image, up to 25 MB each, shown under their own file names. A re-run with the same External ID uploads the files again, and formbase refuses it as a different request.',
+      'Files the recipient can open and download in the form, such as a contract or a price list. PDF or image, up to 25 MB each, shown under their own file names.',
   }
   if (blocks.length === 1) return [files]
   return [

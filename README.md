@@ -97,10 +97,12 @@ and `package-lock.json`, as required by the Zapier CLI.
   else `Document N.<ext>`; the type from the file's first bytes, else the
   response, else the name. The PUT carries no formbase token: the presigned
   URL is its own credential.
-  - Known limit: formbase's idempotency check hashes the request body with the
-    document ids, and a re-run uploads the files again under new ids. A
-    replayed Zap with the same External ID and documents therefore fails with
-    `IDEMPOTENCY_CONFLICT` instead of getting the original request back.
+  - A replayed Zap uploads its files again under new document ids. formbase
+    counts a document by its bytes, block and name for the idempotency check,
+    so the replay with the same External ID still gets the original request
+    back. That needs a formbase backend with that rule (formbase commit
+    "let a retry that uploads the same document again deduplicate"); an older
+    one refuses the replay with `IDEMPOTENCY_CONFLICT`.
 - **Get, Remind, Cancel** (`creates/`) and **Find Request**
   (`searches/find_request.js`, `requests.list` by external id, within a form
   or across the workspace) share the request summary outputs in
