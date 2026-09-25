@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.3.0
 
 - Update create/create_request: attach documents. A form with a Documents block offers a Documents input for files from earlier steps; the recipient opens and downloads them in the form, below the documents the form already has. Each file is uploaded through `documents.create` before the request is created, keeps its own file name, and is checked by formbase against its size and sha256. A replayed Zap with the same External ID gets the original request back even though it uploads its files again; this needs a formbase backend that counts a document by its bytes for idempotency. A form with several Documents blocks also asks which block they go into, and a run that attaches files without one fails before anything is uploaded.
 - Update create/get_request, create/remind_request and create/cancel_request: the Request input offers a dropdown of the newest requests, labelled by recipient, status and External ID, and a Find Request step can be added inline to fill it. Get Request lists the requests of its picked form. A mapped Request ID works as before.
