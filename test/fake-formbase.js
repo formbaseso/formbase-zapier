@@ -1,6 +1,7 @@
 'use strict'
 
 const http = require('http')
+const { createHash } = require('crypto')
 const { signEvent } = require('./helpers')
 
 const ACCESS_TOKEN = 'fbo_access'
@@ -8,6 +9,8 @@ const IDLE_WINDOWS = ['12h', '1d', '3d', '1w']
 const SUBMISSION_EVENT_TYPES = ['submission_created', 'submission_updated', 'submission_abandoned']
 const REQUEST_EVENT_TYPES = ['request_completed', 'request_expired', 'request_canceled']
 const NOW = '2026-09-22T10:00:00.000Z'
+const DOCUMENT_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml', 'image/avif', 'image/bmp', 'image/tiff']
+const DOCUMENT_MAX_BYTES = 25 * 1024 * 1024
 
 /**
  * An in-process formbase external API: enough of `POST /api/v1` for a connector
@@ -24,9 +27,13 @@ class FakeFormbase {
     this.pdfUrl = options.pdfUrl || 'https://api.formbase.test/api/storage/pdf-key'
     this.subscriptions = new Map()
     this.requests = new Map()
+    // Files a Zap maps into a file input, served at /files/<name>; documents reserved and uploaded.
+    this.files = options.files || {}
+    this.documents = new Map()
     this.calls = []
     this.nextSubscriptionId = 1
     this.nextRequestId = 1
+    this.nextDocumentId = 1
   }
 
   async start() {
@@ -41,13 +48,17 @@ class FakeFormbase {
   }
 
   handle(request, response) {
-    let content = ''
-    request.on('data', (chunk) => (content += chunk))
+    const chunks = []
+    request.on('data', (chunk) => chunks.push(chunk))
     request.on('end', () => {
+      const bytes = Buffer.concat(chunks)
+      const content = bytes.toString('utf8')
       const reply = (status, body) => {
         response.writeHead(status, { 'content-type': 'application/json' })
         response.end(JSON.stringify(body))
       }
+      if (request.method === 'GET' && request.url.startsWith('/files/')) return this.serveFile(request.url.slice('/files/'.length), response)
+      if (request.method === 'PUT' && request.url.startsWith('/upload/')) return this.receiveUpload(request.url.slice('/upload/'.length), bytes, request, response)
       if (request.url !== '/api/v1' || request.method !== 'POST') return reply(404, { ok: false, error: { code: 'NOT_FOUND', message: 'No route' } })
       if (request.headers.authorization !== `Bearer ${ACCESS_TOKEN}`) {
         return reply(401, { ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid token' } })
@@ -81,6 +92,8 @@ class FakeFormbase {
         return { data: this.buildEvent({ formId: params.formId, type: 'submission.completed', test: true }) }
       case 'submissions.pdf':
         return { data: { url: this.pdfUrl, filename: `formbase-submission-${params.submissionId}.pdf`, contentType: 'application/pdf', byteLength: 123 } }
+      case 'documents.create':
+        return this.createDocument(params)
       case 'requests.create':
         return this.createRequest(params)
       case 'requests.get':
@@ -150,11 +163,60 @@ class FakeFormbase {
     return { data: subscription }
   }
 
+  /** A file host: the bytes of `this.files[name]` with the headers it was given. */
+  serveFile(name, response) {
+    const file = this.files[decodeURIComponent(name)]
+    if (!file) {
+      response.writeHead(404)
+      return response.end('Not found')
+    }
+    response.writeHead(200, file.headers || {})
+    response.end(file.bytes)
+  }
+
+  /** The presigned PUT: it takes the bytes of a reserved document, and needs no bearer token. */
+  receiveUpload(documentId, bytes, request, response) {
+    const document = this.documents.get(documentId)
+    if (!document || request.headers.authorization) {
+      response.writeHead(403)
+      return response.end('Forbidden')
+    }
+    document.uploaded = { bytes, contentType: request.headers['content-type'] }
+    response.writeHead(200)
+    response.end()
+  }
+
+  /** `documents.create`: reserve a document and hand back where its bytes go. */
+  createDocument(params) {
+    const invalid = (reason) => ({ status: 400, error: { code: 'VALIDATION_ERROR', message: reason, details: { reason } } })
+    if (!this.forms.some((form) => form.id === params.formId)) return notFound('Form not found')
+    if (!DOCUMENT_TYPES.includes(params.contentType)) return invalid('DOCUMENT_TYPE_NOT_ALLOWED')
+    if (!(params.size > 0 && params.size <= DOCUMENT_MAX_BYTES)) return invalid('DOCUMENT_TOO_LARGE')
+    const id = `doc_${this.nextDocumentId++}`
+    this.documents.set(id, { id, ...params, uploaded: null })
+    return { data: { id, name: params.name, contentType: params.contentType, size: params.size, uploadUrl: `${this.baseUrl}/upload/${id}` } }
+  }
+
+  /** What `requests.create` checks of each document: reserved, uploaded, and the bytes it was declared with. */
+  verifyDocuments(entries = []) {
+    const invalid = (reason, documentId) => ({ status: 400, error: { code: 'VALIDATION_ERROR', message: reason, details: { reason, documentId } } })
+    for (const { documentId } of entries) {
+      const document = this.documents.get(documentId)
+      if (!document) return invalid('DOCUMENT_NOT_FOUND', documentId)
+      if (!document.uploaded) return invalid('DOCUMENT_NOT_UPLOADED', documentId)
+      const { bytes } = document.uploaded
+      if (bytes.length !== document.size || createHash('sha256').update(bytes).digest('hex') !== document.sha256) return invalid('DOCUMENT_INVALID', documentId)
+    }
+    return null
+  }
+
   /** `requests.create` with the server's idempotency rule: same key + same body → the original, `deduplicated: true`. */
   createRequest(params) {
     const form = this.forms.find((candidate) => candidate.id === params.formId)
     if (!form) return notFound('Form not found')
     if (!form.published) return { status: 400, error: { code: 'VALIDATION_ERROR', message: 'FORM_NOT_PUBLISHED' } }
+    const documentError = this.verifyDocuments(params.documents)
+    if (documentError) return documentError
     const body = JSON.stringify({ ...params, idempotencyKey: undefined })
     if (params.idempotencyKey) {
       const existing = [...this.requests.values()].find((request) => request.idempotencyKey === params.idempotencyKey)
@@ -179,7 +241,10 @@ class FakeFormbase {
       context: params.context || {},
       prefill: params.prefill || {},
       readonlyKeys: params.readonly || [],
-      documents: [],
+      documents: (params.documents || []).map(({ documentId, field }) => {
+        const { name, size, contentType } = this.documents.get(documentId)
+        return { ...(field ? { field } : {}), name, size, contentType }
+      }),
       delivery: params.delivery || 'none',
       deliveryStatus: params.delivery === 'email' && params.test !== true ? 'queued' : 'not_requested',
       hasCallback: false,

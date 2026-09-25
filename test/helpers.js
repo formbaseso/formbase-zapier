@@ -10,7 +10,7 @@ class ThrottledError extends Error {}
 /**
  * A stand-in for Zapier's `z`: `z.request` performs a real HTTP request (so
  * nock or a local server can answer it) and parses JSON into `response.data`
- * the way zapier-platform-core does; `z.dehydrateFile` returns a readable
+ * the way zapier-platform-core does, or with `raw: true` answers `buffer()`; `z.dehydrateFile` returns a readable
  * pointer instead of a hydration token; `z.cursor` keeps one string, as Zapier's
  * cursor store does between the pages of one dropdown.
  */
@@ -30,13 +30,21 @@ function makeZ({ cursor = null } = {}) {
             headers: options.headers || {},
           },
           (response) => {
-            let content = ''
-            response.on('data', (chunk) => (content += chunk))
-            response.on('end', () => resolve({ status: response.statusCode, content, data: parseJson(content) }))
+            const chunks = []
+            response.on('data', (chunk) => chunks.push(chunk))
+            response.on('end', () => {
+              const bytes = Buffer.concat(chunks)
+              const headers = { get: (name) => response.headers[name.toLowerCase()] ?? null }
+              // `raw: true` hands back the body undecoded, as zapier-platform-core does.
+              if (options.raw) return resolve({ status: response.statusCode, headers, buffer: async () => bytes })
+              const content = bytes.toString('utf8')
+              resolve({ status: response.statusCode, headers, content, data: parseJson(content) })
+            })
           }
         )
         request.on('error', reject)
-        if (options.body) request.write(typeof options.body === 'string' ? options.body : JSON.stringify(options.body))
+        // Like zapier-platform-core: a string or a Buffer goes as is, anything else as JSON.
+        if (options.body) request.write(typeof options.body === 'string' || Buffer.isBuffer(options.body) ? options.body : JSON.stringify(options.body))
         request.end()
       })
     },

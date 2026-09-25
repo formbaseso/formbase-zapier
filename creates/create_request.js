@@ -2,6 +2,7 @@
 
 const { formbaseRpc } = require('../utils/request')
 const { listFields, ZAPIER_TYPE_BY_FIELD_TYPE } = require('../utils/fields')
+const { uploadDocuments } = require('../utils/documents')
 
 const DELIVERY_CHOICES = {
   none: 'None: the Zap sends the link itself',
@@ -105,11 +106,42 @@ function fieldInputs(items) {
   return inputs
 }
 
+/**
+ * The Documents inputs, for a form with a Documents block: files the
+ * recipient finds in that block, below the ones the form already has. A form
+ * with several blocks also asks which one they go into.
+ */
+function documentInputs(items) {
+  const blocks = items.filter((item) => item.type === 'documents')
+  if (blocks.length === 0) return []
+  const files = {
+    key: 'documents',
+    label: 'Documents',
+    type: 'file',
+    list: true,
+    required: false,
+    helpText:
+      'Files the recipient can open and download in the form, such as a contract or a price list. PDF or image, up to 25 MB each, shown under their own file names. A re-run with the same External ID uploads the files again, and formbase refuses it as a different request.',
+  }
+  if (blocks.length === 1) return [files]
+  return [
+    files,
+    {
+      key: 'documentsBlock',
+      label: 'Documents Block',
+      type: 'string',
+      required: false,
+      choices: Object.fromEntries(blocks.map((block) => [block.key, block.title || block.key])),
+      helpText: 'This form has several Documents blocks; pick the one the files go into. Needed when you attach documents.',
+    },
+  ]
+}
+
 async function getFieldInputs(z, bundle) {
   const formId = bundle.inputData.formId
   if (!formId) return []
   const items = await listFields(z, bundle, formId)
-  const inputs = fieldInputs(items)
+  const inputs = [...fieldInputs(items), ...documentInputs(items)]
   const keys = inputs.flatMap((input) => [input.key, ...(input.children || []).map((child) => child.key)])
   const duplicate = keys.find((key, index) => keys.indexOf(key) !== index)
   if (duplicate) {
@@ -185,6 +217,20 @@ function buildFieldValues(items, inputData) {
   return { prefill, context }
 }
 
+/**
+ * The Documents block the files of this run go into: none named when the form
+ * has one block, which formbase then picks, and the picked one when it has
+ * several. Checked before any upload, so a run formbase would refuse leaves
+ * no document behind.
+ */
+function documentsBlockFor(items, input) {
+  const blocks = items.filter((item) => item.type === 'documents')
+  if (blocks.length === 0) throw new Error('This form has no Documents block, so it cannot take documents. Add one in the editor, or leave Documents empty.')
+  if (blocks.length === 1) return undefined
+  if (isBlank(input.documentsBlock)) throw new Error('This form has several Documents blocks. Pick the one the documents go into under Documents Block.')
+  return input.documentsBlock
+}
+
 function parseExpiresAt(value) {
   const expiresAt = Date.parse(value)
   if (Number.isNaN(expiresAt)) throw new Error(`Expires At is not a date Zapier could parse: ${value}`)
@@ -212,6 +258,10 @@ async function buildCreateParams(z, bundle) {
     ...(isBlank(input.recipientName) ? {} : { name: input.recipientName }),
   }
   const metadata = input.metadata && typeof input.metadata === 'object' ? input.metadata : {}
+  const expiresAt = isBlank(input.expiresAt) ? undefined : parseExpiresAt(input.expiresAt)
+  // Last, so a mistake in any other input never leaves an uploaded document behind.
+  const files = nonBlankList(input.documents)
+  const documents = files.length > 0 ? await uploadDocuments(z, bundle, input.formId, files, documentsBlockFor(items, input)) : []
 
   return {
     formId: input.formId,
@@ -224,7 +274,8 @@ async function buildCreateParams(z, bundle) {
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     ...(isBlank(input.delivery) ? {} : { delivery: input.delivery }),
     ...(reminders.length > 0 ? { reminders } : {}),
-    ...(isBlank(input.expiresAt) ? {} : { expiresAt: parseExpiresAt(input.expiresAt) }),
+    ...(documents.length > 0 ? { documents } : {}),
+    ...(expiresAt === undefined ? {} : { expiresAt }),
     ...(input.test === true ? { test: true } : {}),
   }
 }

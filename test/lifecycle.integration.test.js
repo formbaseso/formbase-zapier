@@ -1,7 +1,8 @@
 /**
  * The whole app against a formbase API speaking real HTTP: pick a form,
  * label its outputs, subscribe, receive a signed delivery, hydrate the PDF,
- * unsubscribe; then create, find, remind, cancel and watch a request.
+ * unsubscribe; then create, find, remind, cancel and watch a request, and
+ * attach documents to one.
  * Nothing is mocked below `z.request`.
  */
 const { FakeFormbase, ACCESS_TOKEN } = require('./fake-formbase')
@@ -34,8 +35,21 @@ beforeAll(async () => {
     forms: [
       { id: 'form_live', name: 'Vendor onboarding', published: true },
       { id: 'form_draft', name: 'Draft', published: false },
+      { id: 'form_lease', name: 'Lease', published: true },
     ],
-    fields: { form_live: FIELDS },
+    fields: {
+      form_live: FIELDS,
+      form_lease: [
+        { key: 'tenant_name', type: 'text', title: 'Tenant', required: true, prefillable: true },
+        { key: 'lease_documents', type: 'documents', title: 'Your lease', required: false, prefillable: false },
+      ],
+    },
+    files: {
+      'lease.pdf': {
+        bytes: Buffer.concat([Buffer.from('%PDF-1.7\n%'), Buffer.from([0xe2, 0xe3, 0xcf, 0xd3]), Buffer.from('\ntrailer\n')]),
+        headers: { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="Lease contract.pdf"' },
+      },
+    },
   }).start()
   // utils/request reads BASE_URL at load, so the app is required after the server is up.
   process.env.BASE_URL = formbase.baseUrl
@@ -63,6 +77,7 @@ test('a Zap goes from form picker to delivered submission and back to unsubscrib
   expect(forms).toEqual([
     { id: 'form_live', label: 'Vendor onboarding' },
     { id: 'form_draft', label: 'Draft (not published)' },
+    { id: 'form_lease', label: 'Lease' },
   ])
 
   // 2. The Zap editor labels outputs from the published field list.
@@ -264,4 +279,20 @@ test('a Zap creates a request, watches it complete, finds it again and cancels a
 
 test('a request on an unpublished form is refused with the form-not-published reason', async () => {
   await expect(createRequest.operation.perform(z, { authData, inputData: { formId: 'form_draft' } })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+})
+
+test('a Zap attaches a document: the form offers the input, the file lands in storage and on the request', async () => {
+  const inputs = await createRequest.operation.inputFields.find((field) => typeof field === 'function')(z, { authData, inputData: { formId: 'form_lease' } })
+  expect(inputs.find((input) => input.key === 'documents')).toMatchObject({ type: 'file', list: true })
+
+  const created = await createRequest.operation.perform(z, {
+    authData,
+    inputData: { formId: 'form_lease', prefill__tenant_name: 'Ada', documents: [`${formbase.baseUrl}/files/lease.pdf`] },
+  })
+
+  expect(created).toMatchObject({ status: 'pending', deduplicated: false })
+  const lease = formbase.files['lease.pdf'].bytes
+  expect(formbase.requests.get(created.id).documents).toEqual([{ name: 'Lease contract.pdf', size: lease.length, contentType: 'application/pdf' }])
+  const [document] = formbase.documents.values()
+  expect(document.uploaded.bytes.equals(lease)).toBe(true)
 })

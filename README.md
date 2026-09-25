@@ -12,7 +12,7 @@ Native Zapier marketplace app for [formbase](https://formbase.so). formbase coll
 | Trigger | Public Link Submission Created   | A respondent submitted the form through its public link.                                                         |
 | Trigger | Public Link Submission Updated   | A respondent edited a public-link submission they already sent. The form must allow editing after submit.        |
 | Trigger | Public Link Submission Abandoned | A public-link draft sat idle for 12 hours, 1 day, 3 days or 1 week. Needs partial-submission tracking.           |
-| Action  | Create Request                   | Assign a published form to one recipient, with prefilled, read-only and context fields. Returns the link.        |
+| Action  | Create Request                   | Assign a published form to one recipient, with prefilled, read-only and context fields and documents. Returns the link. |
 | Action  | Get Request                      | Read a request, with its answers once it is completed.                                                           |
 | Action  | Remind Request                   | Email the recipient a reminder now.                                                                              |
 | Action  | Cancel Request                   | Withdraw a pending request, with an optional reason.                                                             |
@@ -22,6 +22,7 @@ Things that make a Zap easier to build:
 
 - **Form** dropdowns list the connected workspace's forms. A form that is not published yet says so: its triggers can be wired up already, but Create Request needs it published.
 - **Create Request** loads one input per field of the picked form: a dropdown for a choice question, line items for a repeating group, one input per row for a matrix, and a multi-select of the prefilled fields to lock.
+- **Documents** on Create Request, for a form with a Documents block: map files from earlier steps (an email attachment, a Google Drive or Dropbox file) and the recipient opens and downloads them in the form, below the documents the form already has. PDFs and images, up to 25 MB each; each keeps its own file name. A form with several Documents blocks also asks which block they go into.
 - **Request** inputs (Get, Remind, Cancel) offer a dropdown of the newest requests, labelled by recipient, status and External ID, or an inline **Find Request** step.
 - Every trigger and Get Request label their answer outputs with the form's question titles once a form is picked. A booking and a payment answer map property by property (start time, amount, …).
 - **External ID** on Create Request is also the idempotency key: a replayed Zap run gets the same request back (`deduplicated: true`) instead of sending the recipient a second link.
@@ -86,6 +87,20 @@ and `package-lock.json`, as required by the Zapier CLI.
   in the editor and the payload is rebuilt from the live field list on every
   run; two keys that encode the same fail loudly. The output is the created
   summary with the share link under `url`.
+- **Documents** (`utils/documents.js`) — a form with a Documents block gets a
+  `documents` file list, plus a `documentsBlock` dropdown when it has several.
+  Zapier hands each file over as a URL. After every other input has been
+  checked, each file is downloaded, reserved with `documents.create` (size and
+  sha256 declared) and PUT to the presigned URL it answers with, in parallel,
+  and `requests.create` references the ids in the order the files were given.
+  The name comes from the download's `Content-Disposition`, else the URL,
+  else `Document N.<ext>`; the type from the file's first bytes, else the
+  response, else the name. The PUT carries no formbase token: the presigned
+  URL is its own credential.
+  - Known limit: formbase's idempotency check hashes the request body with the
+    document ids, and a re-run uploads the files again under new ids. A
+    replayed Zap with the same External ID and documents therefore fails with
+    `IDEMPOTENCY_CONFLICT` instead of getting the original request back.
 - **Get, Remind, Cancel** (`creates/`) and **Find Request**
   (`searches/find_request.js`, `requests.list` by external id, within a form
   or across the workspace) share the request summary outputs in
@@ -219,6 +234,7 @@ formbase-zapier/
 │   ├── fields.js            # fields.list, per-key output fields, field type map
 │   ├── webhooks.js          # subscribe, unsubscribe, signature verification
 │   ├── dropdowns.js         # workspace lookup, form and request dropdown sources
+│   ├── documents.js         # download, reserve and upload Create Request documents
 │   ├── request_summary.js   # request output fields, sample, Request input
 │   └── request.js           # JSON-RPC transport + error mapping
 └── test/
