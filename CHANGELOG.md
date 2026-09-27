@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.4.1
+
+- Update create/create_request: the help text of each hidden-field (context) input now says what formbase does with it. The recipient cannot change the value and sees it only where the form mentions it, and it comes back in the request's Context, not in the answers. The old text said the recipient never sees it and that it comes back in the answers. Behaviour is unchanged.
+
 ## 4.4.0
 
 - Update create/create_request, create/get_request, create/remind_request, create/cancel_request and search/find_request: times arrive as ISO 8601 dates (`2026-09-27T16:53:00.000Z`) instead of epoch milliseconds, the same shape the triggers deliver, so Zapier formats and compares them as dates. Covers every `…At` field and each Get Request timeline entry's `at`. The labels lose their `(ms)`. A Zap that did arithmetic on the old number needs Formatter's date tools instead.

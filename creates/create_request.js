@@ -56,7 +56,7 @@ function fieldInputs(items) {
         label: `${item.title} (context)`,
         type: 'string',
         required: false,
-        helpText: `Hidden field ${item.key}: the recipient never sees or edits it, and it comes back in the answers.`,
+        helpText: `Hidden field ${item.key}: the recipient cannot change it and sees it only where the form mentions it. It comes back in the request's Context, not in the answers.`,
       })
       continue
     }
