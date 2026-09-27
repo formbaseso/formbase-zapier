@@ -56,7 +56,7 @@ function fieldInputs(items) {
         label: `${item.title} (context)`,
         type: 'string',
         required: false,
-        helpText: `Hidden field ${item.key}: the recipient cannot change it and sees it only where the form mentions it. It comes back in the request's Context, not in the answers.`,
+        helpText: `Hidden field ${item.key}: the recipient cannot change it and sees it only where the form mentions it. It comes back in the request's Context and among the answers.`,
       })
       continue
     }
@@ -327,7 +327,8 @@ const create = {
         required: false,
         choices: DELIVERY_CHOICES,
         default: 'none',
-        helpText: 'With None, send the Request URL this step returns through your own channel.',
+        helpText:
+          'With None, send the Request URL this step returns through your own channel. Email needs a Pro or Business plan. With either, a filled-in Recipient Email gets the form’s scheduled reminders if the form has reminders on.',
       },
       {
         key: 'reminders',
@@ -350,7 +351,7 @@ const create = {
         type: 'string',
         required: false,
         helpText:
-          'Your id for this request, for Find Request later. It is also the idempotency key: a re-run Zap with the same External ID and inputs gets the same request back instead of creating a second one.',
+          'Your id for this request, for Find Request later. It is also the idempotency key: a re-run Zap with the same External ID and inputs gets the same request back instead of creating a second one. The same External ID with different inputs within 30 days fails, so use a new one for each request.',
       },
       {
         key: 'metadata',

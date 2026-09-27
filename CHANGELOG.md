@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.4.2
+
+- Update create/create_request help texts. A hidden-field (context) value comes back in the request's Context and among the answers, which 4.4.1 got wrong. Delivery says Email needs a Pro or Business plan and that a filled-in Recipient Email gets the form's scheduled reminders even with None. External ID says reusing it with different inputs within 30 days fails. Behaviour is unchanged.
+
 ## 4.4.1
 
 - Update create/create_request: the help text of each hidden-field (context) input now says what formbase does with it. The recipient cannot change the value and sees it only where the form mentions it, and it comes back in the request's Context, not in the answers. The old text said the recipient never sees it and that it comes back in the answers. Behaviour is unchanged.
