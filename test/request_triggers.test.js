@@ -82,7 +82,7 @@ describe('outputFields', () => {
         'data__answers__case_id',
       ])
     )
-    expect(fields).toContainEqual({ key: 'data__answers__company_name', label: 'Company' })
+    expect(fields).toContainEqual({ key: 'data__answers__company_name', label: 'Company (company_name)' })
   })
 
   test.each([

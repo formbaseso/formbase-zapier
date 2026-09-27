@@ -17,11 +17,11 @@ const REQUEST_SUMMARY_OUTPUT_FIELDS = [
   { key: 'context', label: 'Context', dict: true },
   { key: 'delivery', label: 'Delivery', type: 'string' },
   { key: 'deliveryStatus', label: 'Delivery Status', type: 'string' },
-  { key: 'expiresAt', label: 'Expires At (ms)', type: 'number' },
-  { key: 'createdAt', label: 'Created At (ms)', type: 'number' },
-  { key: 'completedAt', label: 'Completed At (ms)', type: 'number' },
-  { key: 'expiredAt', label: 'Expired At (ms)', type: 'number' },
-  { key: 'canceledAt', label: 'Canceled At (ms)', type: 'number' },
+  { key: 'expiresAt', label: 'Expires At', type: 'datetime' },
+  { key: 'createdAt', label: 'Created At', type: 'datetime' },
+  { key: 'completedAt', label: 'Completed At', type: 'datetime' },
+  { key: 'expiredAt', label: 'Expired At', type: 'datetime' },
+  { key: 'canceledAt', label: 'Canceled At', type: 'datetime' },
   { key: 'cancelReason', label: 'Cancel Reason', type: 'string' },
   { key: 'remindersSent', label: 'Reminders Sent', type: 'integer' },
 ]
@@ -48,9 +48,9 @@ const SAMPLE_REQUEST_SUMMARY = {
   deliveryStatus: 'sent',
   hasCallback: false,
   callbackFailedAt: null,
-  expiresAt: 1782388800000,
-  createdAt: 1779796800000,
-  updatedAt: 1779796800000,
+  expiresAt: '2026-06-25T12:00:00.000Z',
+  createdAt: '2026-05-26T12:00:00.000Z',
+  updatedAt: '2026-05-26T12:00:00.000Z',
   openedAt: null,
   startedAt: null,
   lastActivityAt: null,
@@ -77,4 +77,21 @@ const REQUEST_ID_INPUT_FIELD = {
   helpText: 'The Request ID from a Create Request step, a Find Request step or a request trigger.',
 }
 
-module.exports = { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY, REQUEST_ID_INPUT_FIELD }
+const toIso = (ms) => new Date(ms).toISOString()
+
+/**
+ * The request methods return times as epoch milliseconds (docs/external-api.md
+ * § Requests), while events carry ISO 8601 strings. Zapier formats, compares
+ * and maps ISO strings as dates, so every `…At` time a request action returns,
+ * and each `requests.get` timeline entry's `at`, leaves this app as one: the
+ * same shape the triggers deliver.
+ */
+function withIsoTimes(request) {
+  const converted = Object.fromEntries(
+    Object.entries(request).map(([key, value]) => [key, key.endsWith('At') && typeof value === 'number' ? toIso(value) : value])
+  )
+  if (!Array.isArray(request.timeline)) return converted
+  return { ...converted, timeline: request.timeline.map((entry) => ({ ...entry, at: toIso(entry.at) })) }
+}
+
+module.exports = { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY, REQUEST_ID_INPUT_FIELD, withIsoTimes }

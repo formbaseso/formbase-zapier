@@ -1,16 +1,18 @@
 'use strict'
 
 const { formbaseRpc } = require('../utils/request')
-const { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY, REQUEST_ID_INPUT_FIELD } = require('../utils/request_summary')
+const { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY, REQUEST_ID_INPUT_FIELD, withIsoTimes } = require('../utils/request_summary')
 
 async function perform(z, bundle) {
   const { requestId, reason } = bundle.inputData
-  return formbaseRpc({
-    z,
-    bundle,
-    method: 'requests.cancel',
-    params: { requestId, ...(reason ? { reason } : {}) },
-  })
+  return withIsoTimes(
+    await formbaseRpc({
+      z,
+      bundle,
+      method: 'requests.cancel',
+      params: { requestId, ...(reason ? { reason } : {}) },
+    })
+  )
 }
 
 const create = {
@@ -33,7 +35,7 @@ const create = {
       },
     ],
     perform,
-    sample: { ...SAMPLE_REQUEST_SUMMARY, status: 'canceled', canceledAt: 1779883200000, canceledBy: 'api', cancelReason: 'Order withdrawn' },
+    sample: { ...SAMPLE_REQUEST_SUMMARY, status: 'canceled', canceledAt: '2026-05-27T12:00:00.000Z', canceledBy: 'api', cancelReason: 'Order withdrawn' },
     outputFields: REQUEST_SUMMARY_OUTPUT_FIELDS,
   },
 }

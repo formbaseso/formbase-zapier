@@ -2,7 +2,7 @@
 
 const { formbaseRpc } = require('../utils/request')
 const { getWorkspace } = require('../utils/dropdowns')
-const { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY } = require('../utils/request_summary')
+const { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY, withIsoTimes } = require('../utils/request_summary')
 
 /**
  * `requests.list` needs a form or a workspace scope. With no form picked the
@@ -18,7 +18,7 @@ async function perform(z, bundle) {
     method: 'requests.list',
     params: { ...scope, externalId, ...(includeTest === true ? { includeTest: true } : {}) },
   })
-  return items
+  return items.map(withIsoTimes)
 }
 
 const search = {

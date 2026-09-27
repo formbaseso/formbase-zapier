@@ -1,10 +1,10 @@
 'use strict'
 
 const { formbaseRpc } = require('../utils/request')
-const { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY, REQUEST_ID_INPUT_FIELD } = require('../utils/request_summary')
+const { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY, REQUEST_ID_INPUT_FIELD, withIsoTimes } = require('../utils/request_summary')
 
 async function perform(z, bundle) {
-  return formbaseRpc({ z, bundle, method: 'requests.remind', params: { requestId: bundle.inputData.requestId } })
+  return withIsoTimes(await formbaseRpc({ z, bundle, method: 'requests.remind', params: { requestId: bundle.inputData.requestId } }))
 }
 
 const create = {

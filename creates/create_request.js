@@ -1,6 +1,7 @@
 'use strict'
 
 const { formbaseRpc } = require('../utils/request')
+const { withIsoTimes } = require('../utils/request_summary')
 const { listFields, ZAPIER_TYPE_BY_FIELD_TYPE } = require('../utils/fields')
 const { uploadDocuments } = require('../utils/documents')
 
@@ -282,7 +283,7 @@ async function buildCreateParams(z, bundle) {
 
 async function perform(z, bundle) {
   const params = await buildCreateParams(z, bundle)
-  return formbaseRpc({ z, bundle, method: 'requests.create', params })
+  return withIsoTimes(await formbaseRpc({ z, bundle, method: 'requests.create', params }))
 }
 
 const create = {
@@ -363,7 +364,7 @@ const create = {
         label: 'Test Request',
         type: 'boolean',
         required: false,
-        helpText: 'A test request sends no email, counts against no quota and fires triggers with Test Event set.',
+        helpText: 'A test request sends no email, counts against no quota, and starts no Zap: request triggers fire for real requests only.',
       },
       getFieldInputs,
     ],
@@ -373,8 +374,8 @@ const create = {
       status: 'pending',
       url: 'https://forms.formbase.so/r/rq_example',
       deliveryStatus: 'not_requested',
-      expiresAt: 1782388800000,
-      createdAt: 1779796800000,
+      expiresAt: '2026-06-25T12:00:00.000Z',
+      createdAt: '2026-05-26T12:00:00.000Z',
       externalId: 'run-42',
       deduplicated: false,
     },
@@ -383,8 +384,8 @@ const create = {
       { key: 'status', label: 'Status', type: 'string' },
       { key: 'url', label: 'Request URL', type: 'string' },
       { key: 'deliveryStatus', label: 'Delivery Status', type: 'string' },
-      { key: 'expiresAt', label: 'Expires At (ms)', type: 'number' },
-      { key: 'createdAt', label: 'Created At (ms)', type: 'number' },
+      { key: 'expiresAt', label: 'Expires At', type: 'datetime' },
+      { key: 'createdAt', label: 'Created At', type: 'datetime' },
       { key: 'externalId', label: 'External ID', type: 'string' },
       { key: 'deduplicated', label: 'Deduplicated', type: 'boolean' },
     ],

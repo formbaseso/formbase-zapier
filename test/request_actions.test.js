@@ -52,6 +52,15 @@ describe('get_request', () => {
     await expect(get.operation.perform(makeZ(), { authData, inputData: { requestId: 'req_1' } })).resolves.toEqual(view)
   })
 
+  test('turns epoch-millisecond times, top-level and in the timeline, into ISO 8601 strings', async () => {
+    const completedAt = Date.parse('2026-09-27T16:53:00.000Z')
+    rpc('requests.get').reply(200, { ok: true, data: { ...view, completedAt, openedAt: null, timeline: [{ id: 'req_1:completed', at: completedAt, type: 'completed' }] } })
+
+    const request = await get.operation.perform(makeZ(), { authData, inputData: { requestId: 'req_1' } })
+    expect(request).toMatchObject({ completedAt: '2026-09-27T16:53:00.000Z', openedAt: null, remindersSent: 0 })
+    expect(request.timeline).toEqual([{ id: 'req_1:completed', at: '2026-09-27T16:53:00.000Z', type: 'completed' }])
+  })
+
   test('labels the answer outputs from the optional form, under answers__<key> / display__<key>', async () => {
     rpc('fields.list', (params) => params.formId === 'form_1').reply(200, {
       ok: true,
@@ -63,8 +72,8 @@ describe('get_request', () => {
       expect.arrayContaining([
         { key: 'url', label: 'Request URL', type: 'string' },
         { key: 'outcome', label: 'Outcome', type: 'string' },
-        { key: 'answers__company_name', label: 'Company' },
-        { key: 'display__company_name', label: 'Company (display)', type: 'string' },
+        { key: 'answers__company_name', label: 'Company (company_name)' },
+        { key: 'display__company_name', label: 'Company (company_name, display)', type: 'string' },
       ])
     )
   })
@@ -85,6 +94,14 @@ describe('find_request', () => {
     })
 
     await expect(find.operation.perform(makeZ(), { authData, inputData: { externalId: 'run-42', formId: 'form_1' } })).resolves.toEqual([summary])
+  })
+
+  test('returns each request with ISO 8601 times', async () => {
+    rpc('requests.list').reply(200, { ok: true, data: { items: [{ ...summary, createdAt: Date.parse('2026-09-27T16:40:00.000Z'), completedAt: null }], hasMore: false } })
+
+    await expect(find.operation.perform(makeZ(), { authData, inputData: { externalId: 'run-42', formId: 'form_1' } })).resolves.toEqual([
+      { ...summary, createdAt: '2026-09-27T16:40:00.000Z', completedAt: null },
+    ])
   })
 
   test('searches the whole workspace when no form is picked, and can include test requests', async () => {

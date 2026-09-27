@@ -53,6 +53,19 @@ async function listFields(z, bundle, formId) {
 }
 
 /**
+ * Zapier names a mapped field by its key path ("Data › Answers › Decision"),
+ * not by its label, while a test record and the field search show the label.
+ * Where the field key reads differently from the question title, the label
+ * names the key too, so "Your Decision (decision)" in the record is plainly
+ * the field that maps as "Decision".
+ */
+function answerLabels(item) {
+  const normalize = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (normalize(item.key) === normalize(item.title)) return { value: item.title, display: `${item.title} (display)` }
+  return { value: `${item.title} (${item.key})`, display: `${item.title} (${item.key}, display)` }
+}
+
+/**
  * One Zapier output field per answer, from one `fields.list` item:
  * `<prefix>answers__<key>` carries the stored value, `<prefix>display__<key>`
  * the readable text. A repeating group's members are line items under the
@@ -73,13 +86,14 @@ function answerOutputFields(item, prefix) {
       { key: `${prefix}display__${item.key}`, label: `${item.key} (display)`, type: 'string' },
     ]
   }
-  const display = { key: `${prefix}display__${item.key}`, label: `${item.title} (display)`, type: 'string' }
+  const labels = answerLabels(item)
+  const display = { key: `${prefix}display__${item.key}`, label: labels.display, type: 'string' }
   if (Array.isArray(item.rows)) {
     // A matrix answer is `{ row_key: column_key }`, which Zapier flattens per row.
     return [
       ...item.rows.map((row) => ({
         key: `${prefix}answers__${item.key}__${row.key}`,
-        label: `${item.title} › ${row.label}`,
+        label: `${labels.value} › ${row.label}`,
         type: 'string',
       })),
       display,
@@ -90,14 +104,14 @@ function answerOutputFields(item, prefix) {
     return [
       ...properties.map((property) => ({
         key: `${prefix}answers__${item.key}__${property.path}`,
-        label: `${item.title} › ${property.label}`,
+        label: `${labels.value} › ${property.label}`,
         type: property.type,
       })),
       display,
     ]
   }
   const type = ZAPIER_TYPE_BY_FIELD_TYPE[item.type]
-  return [{ key: `${prefix}answers__${item.key}`, label: item.title, ...(type ? { type } : {}) }, display]
+  return [{ key: `${prefix}answers__${item.key}`, label: labels.value, ...(type ? { type } : {}) }, display]
 }
 
 module.exports = { listFields, answerOutputFields, ZAPIER_TYPE_BY_FIELD_TYPE }

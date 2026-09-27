@@ -2,7 +2,7 @@
 
 const { formbaseRpc } = require('../utils/request')
 const { listFields, answerOutputFields } = require('../utils/fields')
-const { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY, REQUEST_ID_INPUT_FIELD } = require('../utils/request_summary')
+const { REQUEST_SUMMARY_OUTPUT_FIELDS, SAMPLE_REQUEST_SUMMARY, REQUEST_ID_INPUT_FIELD, withIsoTimes } = require('../utils/request_summary')
 
 // `requests.get` adds the link and, once completed, the answers to the summary.
 const REQUEST_VIEW_OUTPUT_FIELDS = [
@@ -25,7 +25,7 @@ async function outputFields(z, bundle) {
 }
 
 async function perform(z, bundle) {
-  return formbaseRpc({ z, bundle, method: 'requests.get', params: { requestId: bundle.inputData.requestId } })
+  return withIsoTimes(await formbaseRpc({ z, bundle, method: 'requests.get', params: { requestId: bundle.inputData.requestId } }))
 }
 
 const create = {
@@ -55,11 +55,11 @@ const create = {
       status: 'completed',
       outcome: 'approve',
       submissionId: 'sub_xyz789',
-      completedAt: 1779883200000,
+      completedAt: '2026-05-27T12:00:00.000Z',
       url: 'https://forms.formbase.so/r/rq_example',
       answers: { case_id: 'CASE-9', company_name: 'Acme', decision: 'approve' },
       display: { case_id: 'CASE-9', company_name: 'Acme', decision: 'Approve' },
-      timeline: [{ id: 'req_example000000000000:created', at: 1779796800000, type: 'created' }],
+      timeline: [{ id: 'req_example000000000000:created', at: '2026-05-26T12:00:00.000Z', type: 'created' }],
     },
     outputFields: [outputFields],
   },

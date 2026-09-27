@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.4.0
+
+- Update create/create_request, create/get_request, create/remind_request, create/cancel_request and search/find_request: times arrive as ISO 8601 dates (`2026-09-27T16:53:00.000Z`) instead of epoch milliseconds, the same shape the triggers deliver, so Zapier formats and compares them as dates. Covers every `…At` field and each Get Request timeline entry's `at`. The labels lose their `(ms)`. A Zap that did arithmetic on the old number needs Formatter's date tools instead.
+- Update every answer output: where a question's field key reads differently from its title, the label names the key too, as in "Your Decision (decision)" and "Your Decision (decision, display)". Zapier names a mapped field by its key path ("Data › Answers › Decision"), so the test record and the mapped field now read alike. Keys are unchanged, so existing mappings keep working.
+- Update create/create_request: the Test Request help text says a test request starts no Zap. Request triggers fire for real requests only.
+
 ## 4.3.0
 
 - Update create/create_request: attach documents. A form with a Documents block offers a Documents input for files from earlier steps; the recipient opens and downloads them in the form, below the documents the form already has. Each file is uploaded through `documents.create` before the request is created, keeps its own file name, and is checked by formbase against its size and sha256. A replayed Zap with the same External ID gets the original request back even though it uploads its files again; this needs a formbase backend that counts a document by its bytes for idempotency. A form with several Documents blocks also asks which block they go into, and a run that attaches files without one fails before anything is uploaded.
